@@ -1,8 +1,8 @@
-// app/index.js — Screen 1: Home
-import React, { useState } from 'react';
+// app/index.js — Screen 1: Home (integrated with backend)
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
-  ScrollView, Platform,
+  ScrollView, Platform, ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -12,37 +12,73 @@ import MCard from '../src/components/MCard';
 import Ic from '../src/components/Ic';
 import { AccentBtn } from '../src/components/Buttons';
 import { M } from '../src/theme';
-import { CATEGORIES, EXAMPLES, MDATA } from '../src/data';
+import { CATEGORIES, EXAMPLES } from '../src/data';
+import { orchestrate, checkHealth } from '../src/api';
 
 export default function HomeScreen() {
   const router = useRouter();
-  const [query, setQuery]   = useState('');
-  const [city, setCity]     = useState('Islamabad');
-  const [focus, setFocus]   = useState(false);
+  const [query, setQuery]       = useState('');
+  const [city, setCity]         = useState('Islamabad');
+  const [focus, setFocus]       = useState(false);
   const [cityOpen, setCityOpen] = useState(false);
+  const [loading, setLoading]   = useState(false);
+  const [error, setError]       = useState(null);
+  const [online, setOnline]     = useState(null);
 
   const isUrdu      = /[\u0600-\u06FF]/.test(query);
   const isRomanUrdu = !isUrdu && /mujhe|chahiye|subah|mein|kal|aaj/i.test(query);
   const langLabel   = isUrdu ? 'Urdu' : isRomanUrdu ? 'Roman Urdu' : query.length > 3 ? 'English' : null;
 
-  const handleSubmit = () => {
-    router.push({ pathname: '/loading', params: { dest: 'understanding' } });
+  // Check backend health on mount
+  useEffect(() => {
+    checkHealth().then(ok => setOnline(ok));
+  }, []);
+
+  const handleSubmit = async () => {
+    if (!query.trim()) return;
+    setLoading(true);
+    setError(null);
+
+    try {
+      const result = await orchestrate({ text: query.trim(), cityHint: city });
+      // Navigate to loading screen, passing full API result as serialized JSON
+      router.push({
+        pathname: '/loading',
+        params: {
+          dest: 'understanding',
+          apiData: JSON.stringify(result),
+          query: query.trim(),
+        },
+      });
+    } catch (err) {
+      setError(err.message || 'Something went wrong. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const topAction = (
-    <TouchableOpacity style={{
-      width: 40, height: 40, borderRadius: 20,
-      alignItems: 'center', justifyContent: 'center',
-      marginRight: 4,
-    }}>
-      <Ic name="bell" size={20} color={M.text} />
-      <View style={{
-        position: 'absolute', top: 9, right: 11,
-        width: 6, height: 6, borderRadius: 3,
-        backgroundColor: M.accent,
-        borderWidth: 2, borderColor: M.surface,
-      }} />
-    </TouchableOpacity>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+      {online !== null && (
+        <View style={{
+          width: 8, height: 8, borderRadius: 4,
+          backgroundColor: online ? M.success : M.error,
+        }} />
+      )}
+      <TouchableOpacity style={{
+        width: 40, height: 40, borderRadius: 20,
+        alignItems: 'center', justifyContent: 'center',
+        marginRight: 4,
+      }}>
+        <Ic name="bell" size={20} color={M.text} />
+        <View style={{
+          position: 'absolute', top: 9, right: 11,
+          width: 6, height: 6, borderRadius: 3,
+          backgroundColor: M.accent,
+          borderWidth: 2, borderColor: M.surface,
+        }} />
+      </TouchableOpacity>
+    </View>
   );
 
   return (
@@ -128,6 +164,20 @@ export default function HomeScreen() {
               </View>
             </View>
           </MCard>
+
+          {/* Error message */}
+          {error && (
+            <View style={{
+              backgroundColor: '#FEF2F2', borderRadius: 12, padding: 12, marginTop: 10,
+              borderWidth: 1, borderColor: '#FECACA', flexDirection: 'row', gap: 8, alignItems: 'center',
+            }}>
+              <Ic name="alarm" size={14} color={M.error} />
+              <Text style={{ flex: 1, fontSize: 12, color: '#991B1B', lineHeight: 18 }}>{error}</Text>
+              <TouchableOpacity onPress={() => setError(null)}>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: M.error }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+          )}
 
           {/* City picker */}
           <TouchableOpacity
@@ -232,7 +282,16 @@ export default function HomeScreen() {
 
         {/* CTA */}
         <View style={{ paddingHorizontal: 14, paddingBottom: 20 }}>
-          <AccentBtn onPress={handleSubmit}>Find a provider</AccentBtn>
+          {loading ? (
+            <View style={{
+              backgroundColor: M.accent, borderRadius: 14, height: 52,
+              alignItems: 'center', justifyContent: 'center',
+            }}>
+              <ActivityIndicator color="#fff" />
+            </View>
+          ) : (
+            <AccentBtn onPress={handleSubmit}>Find a provider</AccentBtn>
+          )}
         </View>
       </ScrollView>
 

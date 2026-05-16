@@ -1,0 +1,20 @@
+{
+  "G-13":  { "lat": 33.6469, "lng": 72.9615, "formatted": "G-13, Islamabad" },
+  "G-11":  { "lat": 33.6598, "lng": 72.9725, "formatted": "G-11, Islamabad" },
+  "G-9":   { "lat": 33.6720, "lng": 72.9850, "formatted": "G-9, Islamabad" },
+  "F-10":  { "lat": 33.6844, "lng": 73.0100, "formatted": "F-10, Islamabad" },
+  "F-11":  { "lat": 33.6800, "lng": 73.0000, "formatted": "F-11, Islamabad" },
+  "F-7":   { "lat": 33.7100, "lng": 73.0350, "formatted": "F-7, Islamabad" },
+  "F-6":   { "lat": 33.7150, "lng": 73.0280, "formatted": "F-6, Islamabad" },
+  "E-11":  { "lat": 33.6950, "lng": 72.9500, "formatted": "E-11, Islamabad" },
+  "I-8":   { "lat": 33.6650, "lng": 73.0450, "formatted": "I-8, Islamabad" },
+  "I-10":  { "lat": 33.6500, "lng": 73.0200, "formatted": "I-10, Islamabad" },
+  "H-13":  { "lat": 33.6400, "lng": 72.9650, "formatted": "H-13, Islamabad" },
+  "DHA": { "lat": 33.5480, "lng": 73.1230, "formatted": "DHA, Rawalpindi" },
+  "DHA PHASE 2": { "lat": 33.5480, "lng": 73.1230, "formatted": "DHA Phase 2, Rawalpindi" },
+  "BAHRIA TOWN": { "lat": 33.5400, "lng": 73.1200, "formatted": "Bahria Town, Rawalpindi" },
+  "SATELLITE TOWN": { "lat": 33.5880, "lng": 73.0550, "formatted": "Satellite Town, Rawalpindi" },
+  "GULBERG": { "lat": 31.5200, "lng": 74.3500, "formatted": "Gulberg, Lahore" },
+  "JOHAR TOWN": { "lat": 31.4670, "lng": 74.2728, "formatted": "Johar Town, Lahore" },
+  "DHA PHASE 5": { "lat": 31.4750, "lng": 74.4100, "formatted": "DHA Phase 5, Lahore" }
+}

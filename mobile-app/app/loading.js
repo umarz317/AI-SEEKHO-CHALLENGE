@@ -1,4 +1,4 @@
-// app/loading.js — Screen 2: Loading (animated step list)
+// app/loading.js — Screen 2: Loading (animated step list, works with real API data)
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, Animated, Easing } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -9,7 +9,7 @@ import { LOAD_LABELS } from '../src/data';
 
 export default function LoadingScreen() {
   const router   = useRouter();
-  const { dest } = useLocalSearchParams();
+  const { dest, apiData, query } = useLocalSearchParams();
   const [step, setStep] = useState(0);
   const spinAnim = useRef(new Animated.Value(0)).current;
   const insets   = useSafeAreaInsets();
@@ -26,7 +26,7 @@ export default function LoadingScreen() {
     ).start();
   }, []);
 
-  // Step ticker
+  // Step ticker — show progress animation, then navigate
   useEffect(() => {
     let s = 0;
     const id = setInterval(() => {
@@ -35,7 +35,11 @@ export default function LoadingScreen() {
       if (s >= 6) {
         clearInterval(id);
         setTimeout(() => {
-          router.replace({ pathname: `/${dest || 'understanding'}` });
+          // Navigate to destination, passing data forward
+          router.replace({
+            pathname: `/${dest || 'understanding'}`,
+            params: apiData ? { apiData, query } : {},
+          });
         }, 300);
       }
     }, 460);

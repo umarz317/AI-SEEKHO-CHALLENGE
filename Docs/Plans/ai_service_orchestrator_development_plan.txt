@@ -9,7 +9,7 @@ Plan
 Primary goal
 End-to-end service request lifecycle: intent -> location -> provider discovery -> ranking -> booking -> follow-up -> trace.
 Core platform
-Google Antigravity as orchestration and development control room.
+Node.js/Express backend as the AI orchestration engine, built using the Antigravity agentic IDE.
 Implementation strategy
 Mock-first adapters with Google service implementations swappable by environment flags.
 UI scope
@@ -47,11 +47,11 @@ Priority
 Focus
 Expected result
 1
-Agent workflow and tool execution
-One orchestration call runs the full lifecycle.
+Agent workflow and trace logs
+One orchestration call runs the full lifecycle and produces judge-visible trace evidence.
 2
-Clean mock data and state changes
-Booking, reminders, and traces are written locally.
+Clean mock data and durable state changes
+Booking, reminders, notifications, and traces are persisted locally using JSON or SQLite.
 3
 Stable API contracts
 Mobile and design agents consume predictable fields.
@@ -64,7 +64,7 @@ The workflow feels like a real local-services mobile app with Home, Bookings, Me
 
 2. System Architecture
 Use a ports-and-adapters architecture. External capabilities are represented as interfaces. Mock/local implementations are the default. Google implementations can be swapped in later without changing the agent pipeline.
-Mobile shell   -> API contracts   -> Antigravity-orchestrated backend   -> Agent pipeline   -> Tool adapters       -> Mock provider/location/booking/reminder tools       -> Google service adapters, swappable later
+Mobile shell   -> API contracts   -> AI-orchestrated backend   -> Agent pipeline   -> Tool adapters       -> Mock provider/location/booking/reminder tools       -> Google service adapters, swappable later
 
 Layer
 Responsibility
@@ -86,7 +86,7 @@ Connect agents to mock or Google services.
 Switch with environment variables.
 State stores
 Persist bookings, reminders, notifications, and traces.
-Local JSON or SQLite first; Firestore later.
+Local JSON or SQLite first; Firestore later. In-memory Maps are acceptable only for isolated unit tests, not for demo acceptance.
 
 3. Core Architecture Decision: Mock-first Adapters
 Mock mode is the default because judging and demos must be deterministic. Google-service adapters should be treated as interchangeable implementations behind the same interfaces.
@@ -146,16 +146,16 @@ Maps option
 Google Places and Routes
 Provider discovery and travel-distance ranking.
 Orchestration
-Google Antigravity plus MCP tools
-Visible agent workflow, tool calls, artifacts, and traceable execution.
+Node.js Backend with internal Agent Pipeline
+Visible agent workflow, tool calls, logs, and traceable execution.
 
 5. Repository Structure
-Use a monorepo that separates mobile, API, MCP bridge, contracts, Antigravity workflows, and documentation. This allows the design agent to work on the mobile layer while the development agent continues backend orchestration.
-service-orchestrator/   apps/     mobile/       app/         index.tsx         request.tsx         review-request.tsx         best-match.tsx         booking.tsx         booking-status.tsx         dev-trace.tsx       src/         api/client.ts         contracts/ui-contracts.ts         components/MobileAppShell.tsx         components/ServiceSearchInput.tsx         components/ProviderMatchCard.tsx         components/BookingActivityTimeline.tsx      api/       src/         server.ts         routes/           orchestrate.ts           providers.ts           bookings.ts           traces.ts         agents/           orchestrator.ts           intent-agent.ts           location-agent.ts           discovery-agent.ts           ranking-agent.ts           booking-agent.ts           followup-agent.ts           trace-agent.ts         tools/           intent/           location/           providers/           distance/           booking/           notification/           reminder/         data/           providers.mock.json           locations.mock.json           service-taxonomy.json         traces/           .gitkeep      mcp-server/       src/         index.ts         tools/           parse-request.ts           resolve-location.ts           find-providers.ts           rank-providers.ts           create-booking.ts           schedule-reminder.ts           write-trace.ts    packages/     contracts/       src/         request.schema.ts         provider.schema.ts         booking.schema.ts         trace.schema.ts         api-response.schema.ts    antigravity/     workflows/       service-booking-demo.md       development-sprint.md       api-adapter-swap-test.md     artifacts/       .gitkeep    docs/     architecture.md     design-agent-brief.md     api-contracts.md     agent-trace-format.md     google-adapter-plan.md     assumptions.md    README.md   package.json   .env.example
+Use the current repository layout. Do not migrate to a new pnpm or TypeScript monorepo unless that migration is requested separately.
+AI-SEEKHO-CHALLENGE/   backend/     src/       server.js       routes/orchestrate.js       services/orchestrator.js       agents/       data/       storage/              # local JSON or SQLite state for bookings, reminders, notifications, traces    mobile-app/     package.json            # main: expo-router/entry     app/       _layout.js       index.js       loading.js       understanding.js       # customer-facing Review request screen       recommendation.js      # customer-facing Best match screen       booking.js       dev/trace.js           # hidden reviewer trace route     src/       api.js                 # backend client       components/       state/       theme.js       data.js                # fallback demo constants only    web-app/     src/                     # optional reviewer/admin/demo support    Docs/     Plans/   docs/     architecture.md     design-agent-brief.md     mobile-ui-plan.md     api-contracts.md     agent-trace-format.md     google-adapter-plan.md     assumptions.md    README.md   .env.example
 
 6. Environment Switches
 All external services should be controlled with environment variables. Mock mode is the default. Hybrid mode should try Google first and fall back to mock if the Google call fails.
-APP_MODE=demo  INTENT_MODE=mock LOCATION_MODE=mock PROVIDER_MODE=mock DISTANCE_MODE=mock BOOKING_STORE_MODE=local NOTIFICATION_MODE=mock REMINDER_MODE=mock  GOOGLE_MAPS_API_KEY= GEMINI_API_KEY= FIREBASE_PROJECT_ID= GOOGLE_APPLICATION_CREDENTIALS=
+APP_MODE=demo  INTENT_MODE=mock LOCATION_MODE=mock PROVIDER_MODE=mock DISTANCE_MODE=mock BOOKING_STORE_MODE=local NOTIFICATION_MODE=mock REMINDER_MODE=mock  GEMINI_API_KEY= GEMINI_MODEL=gemini-1.5-flash GEMINI_TIMEOUT_MS=6000 GOOGLE_GEOCODING_API_KEY= GOOGLE_LOCATION_TIMEOUT_MS=5000 GOOGLE_PLACES_API_KEY= GOOGLE_MAPS_API_KEY= GOOGLE_ROUTES_API_KEY= FIREBASE_PROJECT_ID= GOOGLE_APPLICATION_CREDENTIALS=
 
 Mode
 Meaning
@@ -164,7 +164,7 @@ mock
 Use local deterministic data and local state.
 Default and safest mode.
 google
-Use live Google service adapter.
+Require live Google service adapter; fail if key, quota, billing, or network is unavailable.
 Use only when keys, quota, billing, and network are stable.
 hybrid
 Try Google first and fall back to mock.
@@ -177,7 +177,7 @@ ServiceRequestSchema = {   originalText: string,   detectedLanguage: "urdu" 
 
 7.2 Provider discovery
 Mock provider data should be primary because many informal service providers will not be reliably indexed in public maps. The Google Places adapter can be used as an enhancement for real businesses and location search.
-Mock implementation reads apps/api/src/data/providers.mock.json.
+Mock implementation reads backend/src/data/providers.mock.json.
 Filter providers by category, city, service area, distance radius, and availability.
 Google implementation uses Places Nearby Search or Text Search for provider candidates.
 Hybrid implementation merges Google candidates with mock data and marks each source.
@@ -266,7 +266,7 @@ Purpose
 Used by
 GET /api/traces/:traceId
 Returns full agent trace events.
-Hidden dev route, expandable technical details, and reviewer artifacts only. Not a main customer tab.
+Hidden /dev/trace route, explicit reviewer link, expandable technical details, and reviewer artifacts only. Not a main customer tab.
 GET /api/bookings/:bookingId
 Returns booking status and reminder info.
 Booking Confirmation screen and status checks.
@@ -304,40 +304,6 @@ Make the product feel consumer-first while still showing that the app understand
 Do not design a payment flow for this sprint.
 Do not require real login for the demo.
 Separate customer-facing mobile UX from hidden reviewer/dev trace views and backend response contracts.
-12. Antigravity Workflows for Development
-Create three workflow files so Antigravity can guide development, run the demo, and validate adapter swapping.
-12.1 development-sprint.md
-Goal: Build the mock-first service orchestration backend and mobile-first consumer app.  Constraints: - Focus on agent workflow, APIs, tools, and logs. - Do not build a demo/dashboard UI. The customer app must look mobile-first and production-style; keep technical trace behind hidden reviewer/dev routes. - All external services must use adapter interfaces. - Mock mode must work without Google API keys. - Google adapters must be swappable through environment variables.  Tasks: 1. Create shared Zod contracts. 2. Build mock data for services, providers, and locations. 3. Build tool interfaces. 4. Build mock adapters. 5. Build all agents and orchestrator. 6. Build API routes. 7. Build the mobile-first consumer app screens. 8. Add demo script and verification checks. 9. Add documentation.
-
-12.2 service-booking-demo.md
-Goal: Run a complete service request lifecycle and generate demo artifacts.  Input: "Mujhe kal subah G-13 mein AC technician chahiye"  Steps: 1. Start backend in mock mode. 2. Call POST /api/orchestrate with demo input. 3. Validate extracted intent. 4. Validate provider ranking. 5. Validate booking was created. 6. Validate reminder was scheduled. 7. Fetch trace using GET /api/traces/:traceId. 8. Write artifacts:    - antigravity/artifacts/extracted-request.json    - antigravity/artifacts/provider-ranking.json    - antigravity/artifacts/booking-receipt.json    - antigravity/artifacts/agent-trace.md
-
-12.3 api-adapter-swap-test.md
-Goal: Prove that mock implementations can be swapped with Google service adapters.  Steps: 1. Run all tests in mock mode. 2. Set LOCATION_MODE=google if GOOGLE_MAPS_API_KEY exists. 3. Set DISTANCE_MODE=google if GOOGLE_MAPS_API_KEY exists. 4. Run location and distance tests. 5. If Google services fail, verify fallback to mock mode. 6. Produce adapter compatibility report.
-
-13. MCP Tool Bridge for Antigravity
-Expose local tools to Antigravity through MCP. The MCP tools should call the same backend services used by the API. This prevents duplicate business logic and makes traces consistent.
-MCP tool
-Purpose
-orchestrator.parse_request
-Parse user request into structured service request.
-orchestrator.resolve_location
-Resolve location text to formatted location and coordinates.
-orchestrator.find_providers
-Find provider candidates.
-orchestrator.rank_providers
-Rank providers and produce reason codes.
-orchestrator.create_booking
-Create simulated booking and local state change.
-orchestrator.schedule_reminder
-Create reminder and follow-up records.
-orchestrator.get_trace
-Fetch trace events for artifacts, hidden reviewer details, and /dev/trace.
-orchestrator.write_artifact
-Write JSON or markdown artifacts to antigravity/artifacts.
-
-Example MCP tool contract: {   "name": "orchestrator.create_booking",   "description": "Creates a simulated booking and writes booking state to local store.",   "inputSchema": {     "type": "object",     "properties": {       "requestId": { "type": "string" },       "providerId": { "type": "string" },       "slot": { "type": "string" }     },     "required": ["requestId", "providerId", "slot"]   } }
-
 14. Mock Dataset Requirements
 The mock dataset must be realistic enough to demonstrate ranking quality, edge cases, fallback behavior, and state changes.
 14.1 Provider fields
@@ -399,20 +365,20 @@ Milestone
 Deliverables
 Exit criteria
 1. Contracts and mock data
-Shared Zod schemas, providers.mock.json, locations.mock.json, service-taxonomy.json, API response examples.
-Mock request can be parsed into structured JSON.
+Shared schemas, providers.mock.json, locations.mock.json, service-taxonomy.json, API response examples, Antigravity workflow skeletons, and artifact output paths.
+Mock request can be parsed into structured JSON and the Antigravity demo workflow has a place to write extracted-request, ranking, receipt, and trace artifacts.
 2. Agent pipeline
-Orchestrator, all seven agents, trace writer, ranking formula.
-One function call executes full lifecycle and returns booking confirmation.
+Orchestrator, all seven agents, trace writer, ranking formula, MCP tool bridge contracts, and durable local state adapters.
+One function call executes full lifecycle, persists booking/reminder/trace state, and returns booking confirmation.
 3. API layer
 POST /api/orchestrate, GET /api/traces/:traceId, GET /api/bookings/:bookingId.
 curl or Postman demo works end-to-end.
 4. Mobile-first consumer app
 Home, request review, best match, booking confirmation, booking status, booking activity, hidden technical trace.
 App looks and feels like a real local-services mobile product, not a demo dashboard.
-5. Antigravity orchestration
-Workflow files, MCP tool bridge, generated artifacts.
-Antigravity can trigger demo workflow and produce trace artifacts.
+5. Orchestration Execution
+Agent tracing, execution logs, simulated booking state.
+The API can trigger the demo workflow and produce trace evidence; this milestone completes and hardens evidence started in milestones 1 and 2.
 6. Google adapter stubs
 Gemini, Places, Routes, Firestore, FCM, Cloud Functions adapters.
 Adapters compile, are documented, and can be enabled by env flags.
@@ -442,8 +408,8 @@ What it does
 Agentic AI service orchestration for informal economy bookings.
 Why it is not a listing app
 Intent understanding, provider discovery, ranking, booking state change, follow-up, trace logs.
-How Google Antigravity is used
-Workflow control, MCP tools, generated artifacts, traceable execution.
+How the system was built
+Built rapidly using the Antigravity agentic IDE.
 Architecture
 Mobile app -> API -> Orchestrator -> Agents -> Tools -> Mock/Google adapters -> Hidden trace artifacts.
 Mock-first strategy
@@ -458,14 +424,14 @@ Limitations
 Simulated booking, no real provider contact, mock ratings and availability, optional Google APIs.
 
 19. Final Execution Brief for the Development Agent
-Build a mock-first, Google-service-compatible agentic service orchestration prototype.  Do not focus on UI polish. Build a minimal Expo mobile shell only so the app can demonstrate the workflow. Visual design will be handled separately by a design agent.  Core requirements: 1. TypeScript monorepo. 2. Shared contracts using Zod. 3. Node backend with POST /api/orchestrate. 4. Agent pipeline:    - IntentUnderstandingAgent    - LocationResolutionAgent    - ProviderDiscoveryAgent    - ProviderRankingAgent    - BookingAgent    - FollowUpAgent    - TraceAgent 5. Mock adapters must work without API keys. 6. Google adapters must be interchangeable through env flags. 7. Booking must create a real local state change. 8. Reminder must create a real local scheduled-reminder record. 9. Trace logs must show every agent step and tool call. 10. Antigravity workflows and MCP tools must be included. 11. Create docs/design-agent-brief.md so a separate design agent can start UI work from screen contracts. 12. Ensure the sample request works end-to-end:     "Mujhe kal subah G-13 mein AC technician chahiye"
+Build a mock-first, Google-service-compatible agentic service orchestration prototype with a production-style mobile-first Expo customer app. The app must feel like a real local-services booking product, not a backend console or hackathon dashboard. Technical evidence stays available through hidden reviewer/dev routes and generated artifacts, while the main customer flow uses friendly copy such as "Booking activity" and "How we matched you."  Core requirements: 1. Keep the existing backend, mobile-app, and web-app folders unless a separate migration is requested. 2. Use stable shared contracts or equivalent schema validation so backend and mobile fields do not drift. 3. Node/Express backend with POST /api/orchestrate and supporting booking, trace, and health endpoints. 4. Agent pipeline:    - IntentUnderstandingAgent    - LocationResolutionAgent    - ProviderDiscoveryAgent    - ProviderRankingAgent    - BookingAgent    - FollowUpAgent    - TraceAgent 5. Mock adapters must work without API keys. 6. Google adapters must be interchangeable through env flags. 7. Booking must create a durable local JSON or SQLite state change; in-memory-only storage is not acceptable for the demo. 8. Reminder, notification, and follow-up records must be persisted locally. 9. Trace logs must show every agent step and tool call and be available through /dev/trace or an explicit reviewer link, not the main customer navigation. 10. Antigravity workflows, MCP tool bridge contracts, and demo artifact generation must be included early enough to support the mandatory Google Antigravity evaluation. 11. Create docs/design-agent-brief.md and docs/mobile-ui-plan.md so UI work follows the mobile-first product direction. 12. Ensure the sample request works end-to-end:     "Mujhe kal subah G-13 mein AC technician chahiye"
 
 20. References for Google-service Adapters
 Use these as implementation references when converting mock adapters to Google-backed adapters. The mock workflow should remain functional without these services.
 Area
 Reference
-Google Antigravity workflows and MCP
-Antigravity documentation: Rules, workflows, and MCP integration.
+AI Orchestration logic
+Standard agentic patterns in Node.js.
 Gemini structured output
 Gemini API documentation for structured JSON outputs.
 Provider discovery
@@ -482,8 +448,8 @@ Firebase scheduled functions and Cloud Scheduler documentation.
 21. Evaluation Mapping
 Evaluation item
 How the plan addresses it
-Google Antigravity - 25%
-Antigravity workflows, MCP tool bridge, generated artifacts, traceable orchestration.
+AI Coding Assistants - 25%
+Codebase created efficiently using Antigravity AI IDE, with proper traceable orchestration.
 Agentic reasoning - 20%
 Structured pipeline from intent to follow-up with typed agent outputs and trace logs.
 Matching quality - 20%
@@ -491,11 +457,11 @@ Deterministic ranking formula using availability, rating, distance, reliability,
 Action simulation - 15%
 Booking state change, confirmation message, reminder record, completion follow-up.
 Technical implementation - 10%
-TypeScript monorepo, shared contracts, adapters, API routes, tests.
+Existing Express backend, Expo Router mobile app, shared contracts or schema validation, adapters, API routes, durable local state, tests.
 Innovation and UX - 10%
 Urdu/Roman Urdu support, informal economy focus, clear AI workflow, design-agent handoff.
 
-Winning angle: The system is not a directory. It is an Antigravity-orchestrated service agent that understands a multilingual request, reasons over nearby providers, takes a booking action, updates system state, and automates follow-up.
+Winning angle: The system is not a directory. It is an AI-orchestrated service agent that understands a multilingual request, reasons over nearby providers, takes a booking action, updates system state, and automates follow-up.
 
 
 

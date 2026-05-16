@@ -13,13 +13,18 @@ Build a mock-first, Google-service-compatible agentic service orchestration prot
 Control modes via `.env`:
 ```env
 APP_MODE=demo
-INTENT_MODE=mock # mock | google | hybrid
-LOCATION_MODE=mock
+INTENT_MODE=mock # mock = rules, hybrid = Gemini + fallback, google = Gemini required
+LOCATION_MODE=mock # mock = local JSON, hybrid = Google Geocoding + fallback, google = Google Geocoding required
+GOOGLE_GEOCODING_API_KEY=
+GOOGLE_LOCATION_TIMEOUT_MS=5000
 PROVIDER_MODE=mock
 DISTANCE_MODE=mock
 BOOKING_STORE_MODE=local
 NOTIFICATION_MODE=mock
 REMINDER_MODE=mock
+GEMINI_API_KEY=
+GEMINI_MODEL=gemini-1.5-flash
+GEMINI_TIMEOUT_MS=6000
 ```
 
 ### Ranking Logic & Reason Codes
@@ -99,7 +104,7 @@ Build the customer experience as a real mobile app first, with web preview only 
   - Say "We found the best available match" instead of "ProviderRankingAgent selected provider."
   - Say "Your booking is confirmed" instead of "BookingAgent created booking."
   - Say "Reminder set" instead of "Mock reminder scheduled."
-  - Never show Mock Mode, Adapter Mode, MCP, or raw tool names in the main customer UI.
+  - Never show Mock Mode, Adapter Mode, or raw tool names in the main customer UI.
 - **Required Mobile Components:** `MobileAppShell`, `BottomTabBar`, `TopGreetingHeader`, `ServiceSearchInput`, `PopularServiceGrid`, `ExampleChipRow`, `StickyBottomAction`, `RequestReviewCard`, `ProviderMatchCard`, `ReasonChip`, `BookingSummaryCard`, `BookingActionGrid`, `BookingActivityTimeline`, `ExpandableMatchDetails`, `LoadingStepSheet`, `EmptyState`, `ErrorState`, `MissingLocationPrompt`, `MissingTimeBottomSheet`.
 
 ## Mock Dataset Requirements
@@ -119,40 +124,36 @@ The mock data (e.g., `providers.mock.json`) will look exactly like this:
 2. **Agent pipeline:** Orchestrator, all 7 agents, ranking formula.
 3. **API layer:** Core endpoints (`/api/orchestrate`, `/api/traces`, `/api/bookings`).
 4. **Mobile-first consumer app:** Home, request review, best match, booking confirmation, booking status, booking activity, hidden technical trace.
-5. **Antigravity orchestration:** Workflow files, MCP tool bridge.
+5. **Orchestration Execution:** Agent tracing, execution logs, simulated booking state are finalized here.
 6. **Google adapter stubs:** Environment-flagged integrations for Gemini, Places, Routes, Firebase.
 
 ## Proposed Changes
-Using a `pnpm` workspace setup, targeting existing directories.
+Target the current repository structure. Keep `backend/`, `mobile-app/`, and `web-app/` in place. Do not migrate to a pnpm TypeScript monorepo unless that migration is requested separately.
 
-#### [NEW] [pnpm-workspace.yaml](file:///Users/umar/Documents/AI-SEEKHO-CHALLENGE/pnpm-workspace.yaml)
-#### [NEW] [package.json](file:///Users/umar/Documents/AI-SEEKHO-CHALLENGE/package.json)
-#### [NEW] [packages/contracts/src/request.schema.ts](file:///Users/umar/Documents/AI-SEEKHO-CHALLENGE/packages/contracts/src/request.schema.ts)
-*(and other schema files: provider, booking, trace, api-response)*
+### Contracts and validation
+Use shared contract modules or backend-owned schema validation that the mobile API client imports or mirrors. TypeScript/Zod may be added later, but the immediate implementation should fit the existing JavaScript repo.
 
 ### API Backend (`backend/`)
-#### [NEW] [server.ts](file:///Users/umar/Documents/AI-SEEKHO-CHALLENGE/backend/src/server.ts)
-#### [NEW] [routes/orchestrate.ts](file:///Users/umar/Documents/AI-SEEKHO-CHALLENGE/backend/src/routes/orchestrate.ts)
-#### [NEW] [agents/orchestrator.ts](file:///Users/umar/Documents/AI-SEEKHO-CHALLENGE/backend/src/agents/orchestrator.ts)
-*(plus 7 specialized agents: intent, location, discovery, ranking, booking, followup, trace)*
-#### [NEW] [tools/intent/index.ts](file:///Users/umar/Documents/AI-SEEKHO-CHALLENGE/backend/src/tools/intent/index.ts)
-*(plus tools for location, providers, distance, booking, notification, reminder)*
+Update the existing Express JavaScript backend rather than replacing it with a new TypeScript service.
+#### [EXISTING] [server.js](file:///Users/umar/Documents/AI-SEEKHO-CHALLENGE/backend/src/server.js)
+#### [EXISTING] [routes/orchestrate.js](file:///Users/umar/Documents/AI-SEEKHO-CHALLENGE/backend/src/routes/orchestrate.js)
+#### [EXISTING] [services/orchestrator.js](file:///Users/umar/Documents/AI-SEEKHO-CHALLENGE/backend/src/services/orchestrator.js)
+#### [EXISTING] [agents/](file:///Users/umar/Documents/AI-SEEKHO-CHALLENGE/backend/src/agents)
+Add durable local JSON or SQLite storage for bookings, reminders, notifications, and traces. In-memory Maps are not acceptable for demo acceptance because the challenge requires visible system state changes.
 
 ### Mobile App (`mobile-app/`)
-#### [NEW] [app/index.tsx](file:///Users/umar/Documents/AI-SEEKHO-CHALLENGE/mobile-app/app/index.tsx)
-*(plus request, understanding, recommendation, booking, and trace screens)*
+Use the existing Expo Router setup.
+#### [EXISTING] [package.json](file:///Users/umar/Documents/AI-SEEKHO-CHALLENGE/mobile-app/package.json) uses `expo-router/entry`
+#### [EXISTING] [app/_layout.js](file:///Users/umar/Documents/AI-SEEKHO-CHALLENGE/mobile-app/app/_layout.js)
+#### [EXISTING] [app/index.js](file:///Users/umar/Documents/AI-SEEKHO-CHALLENGE/mobile-app/app/index.js)
+Routes should be customer-first: Home, Review request, Best match, Booking confirmed, Booking status, Booking activity. Technical trace should live behind `/dev/trace` or an explicit reviewer link, not in normal customer navigation.
 
 ### Web App (`web-app/`)
-*(Stub layout and page components)*
+Use as reviewer/admin/demo support only. It may show bookings, traces, and generated artifacts, but it is not the required primary customer surface.
 
-### MCP Server Bridge (`mcp-server/`)
-#### [NEW] [index.ts](file:///Users/umar/Documents/AI-SEEKHO-CHALLENGE/mcp-server/src/index.ts)
-*(plus the 8 tools like parse-request, resolve-location, rank-providers, etc.)*
-
-### Documentation & Workflows
+### Documentation
 #### [NEW] [docs/design-agent-brief.md](file:///Users/umar/Documents/AI-SEEKHO-CHALLENGE/docs/design-agent-brief.md)
 *(plus architecture.md, api-contracts.md, agent-trace-format.md)*
-#### [NEW] [antigravity/workflows/service-booking-demo.md](file:///Users/umar/Documents/AI-SEEKHO-CHALLENGE/antigravity/workflows/service-booking-demo.md)
 
 ## Verification Plan
 1. **Case 1:** *Mujhe kal subah G-13 mein AC technician chahiye* -> Select Ali AC Services, confirm 10:00 AM booking.
@@ -162,9 +163,11 @@ Using a `pnpm` workspace setup, targeting existing directories.
 5. **Case 5:** *Need beautician in F-11* -> Return missing time state.
 6. **Case 6:** Closest provider unavailable -> Rank available provider above closest unavailable.
 7. **Case 7:** No exact category match -> Show fallback suggestions and trace mismatch.
+8. **State persistence:** Restarting the backend should not erase demo bookings/traces when using local JSON or SQLite mode.
+9. **Mobile live data:** Mobile screens must use the backend orchestration response for the demo path, not only static `MDATA`.
 
 ## Evaluation Mapping
-- **Google Antigravity (25%):** Uses workflows, MCP tool bridge, and trace logging.
+- **AI Coding Assistants (25%):** Codebase created efficiently using Antigravity AI IDE, with proper traceable orchestration.
 - **Agentic Reasoning (20%):** Structured 7-step pipeline from intent to follow-up.
 - **Matching Quality (20%):** Deterministic ranking (distance, rating, reliability).
 - **Action Simulation (15%):** Booking state changes and follow-ups.
