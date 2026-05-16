@@ -1,0 +1,37 @@
+// src/theme.js — Design tokens (direct port of M object from prototype)
+export const M = {
+  bg:          '#FAFBFD',
+  surface:     '#FFFFFF',
+  surfaceVar:  '#F4F6FA',
+  surfaceLow:  '#F8FAFC',
+  primary:     '#1E293B',
+  primaryGrad: '#243349',
+  accent:      '#10B981',
+  accentDark:  '#059669',
+  accentDeep:  '#047857',
+  accentBg:    '#ECFDF5',
+  accentSoft:  '#D1FAE5',
+  agent:       '#6366F1',
+  agentBg:     '#EEF2FF',
+  purple:      '#8B5CF6',
+  purpleBg:    '#F5F3FF',
+  text:        '#0F172A',
+  textMute:    '#64748B',
+  textDim:     '#94A3B8',
+  border:      '#E2E8F0',
+  borderHi:    '#CBD5E1',
+  divider:     '#F1F5F9',
+  success:     '#22C55E',
+  successBg:   '#F0FDF4',
+  amber:       '#F59E0B',
+  amberBg:     '#FEF3C7',
+  error:       '#EF4444',
+};
+
+export const FONT = {
+  regular:     'PlusJakartaSans_400Regular',
+  medium:      'PlusJakartaSans_500Medium',
+  semiBold:    'PlusJakartaSans_600SemiBold',
+  bold:        'PlusJakartaSans_700Bold',
+  extraBold:   'PlusJakartaSans_800ExtraBold',
+};
