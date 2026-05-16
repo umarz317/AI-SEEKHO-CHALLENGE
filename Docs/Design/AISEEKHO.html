@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AISEEKHO — AI Service Agent</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --c-primary:    #1E293B;
+      --c-accent:     #10B981;
+      --c-accent-50:  #ECFDF5;
+      --c-accent-600: #059669;
+      --c-bg:         #F1F5F9;
+      --c-card:       #FFFFFF;
+      --c-text:       #0F172A;
+      --c-muted:      #64748B;
+      --c-border:     #E2E8F0;
+      --c-success:    #22C55E;
+      --c-success-bg: #F0FDF4;
+      --c-warning:    #F59E0B;
+      --c-warning-bg: #FFFBEB;
+      --c-error:      #EF4444;
+      --c-agent:      #3B82F6;
+      --c-agent-bg:   #EFF6FF;
+      --c-purple:     #8B5CF6;
+      --c-purple-bg:  #F5F3FF;
+      --font:         'Plus Jakarta Sans', 'Noto Nastaliq Urdu', system-ui, sans-serif;
+      --font-mono:    'JetBrains Mono', monospace;
+    }
+
+    html, body {
+      height: 100%;
+      font-family: var(--font);
+      background: var(--c-bg);
+      color: var(--c-text);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    #root { min-height: 100vh; }
+
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--c-border); border-radius: 3px; }
+
+    /* ── Keyframes ──────────────────────────────── */
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(18px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to   { opacity: 1; }
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    @keyframes checkPop {
+      0%   { transform: scale(0.4) rotate(-20deg); opacity: 0; }
+      65%  { transform: scale(1.12) rotate(4deg); opacity: 1; }
+      100% { transform: scale(1) rotate(0deg); opacity: 1; }
+    }
+    @keyframes pulseRing {
+      0%   { box-shadow: 0 0 0 0 rgba(16,185,129,.4); }
+      60%  { box-shadow: 0 0 0 7px rgba(16,185,129,0); }
+      100% { box-shadow: 0 0 0 0 rgba(16,185,129,0); }
+    }
+    @keyframes dotBlink {
+      0%, 80%, 100% { opacity: 0.2; transform: scale(0.8); }
+      40%            { opacity: 1;   transform: scale(1); }
+    }
+
+    /* ── Mobile-first shell ─────────────────────────── */
+    .app-shell {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      background: var(--c-bg);
+    }
+
+    /* Desktop: phone-width column centred on dark bg */
+    @media (min-width: 600px) {
+      body {
+        background: #0C1525;
+        background-image:
+          radial-gradient(ellipse 70% 55% at 12% 20%, rgba(16,185,129,.10) 0%, transparent 100%),
+          radial-gradient(ellipse 55% 65% at 88% 80%, rgba(59,130,246,.09) 0%, transparent 100%);
+        min-height: 100vh;
+      }
+
+      #root {
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+        min-height: 100vh;
+      }
+
+      .app-shell {
+        width: 430px;
+        flex-shrink: 0;
+        min-height: 100vh;
+        box-shadow: 0 0 0 1px rgba(255,255,255,.06), 0 40px 100px rgba(0,0,0,.55);
+      }
+
+      /* Demo mode: break out to full viewport */
+      .app-shell-demo {
+        width: 100vw !important;
+        box-shadow: none !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+  <script type="text/babel" src="tweaks-panel.jsx"></script>
+  <script type="text/babel" src="aiseekho-components.jsx"></script>
+  <script type="text/babel" src="aiseekho-screens.jsx"></script>
+  <script type="text/babel" src="aiseekho-app.jsx"></script>
+</body>
+</html>

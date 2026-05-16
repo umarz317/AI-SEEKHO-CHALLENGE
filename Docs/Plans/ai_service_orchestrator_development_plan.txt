@@ -1,0 +1,539 @@
+Development Execution Plan
+AI Service Orchestrator for the Informal Economy
+Mock-first, Google-service-compatible development plan
+
+Updated core instruction: Build a traceable orchestration engine with a production-style, mobile-first consumer app. The UI must not look like a demo dashboard. Technical trace/debug views should be hidden behind reviewer/dev routes or expandable details.
+
+Item
+Plan
+Primary goal
+End-to-end service request lifecycle: intent -> location -> provider discovery -> ranking -> booking -> follow-up -> trace.
+Core platform
+Google Antigravity as orchestration and development control room.
+Implementation strategy
+Mock-first adapters with Google service implementations swappable by environment flags.
+UI scope
+Production-style mobile-first app. Use bottom tabs, card-based booking flow, sticky CTAs, booking activity, and hidden technical trace routes. The app should feel real, not demo-like.
+Demo scenario
+Roman Urdu request for an AC technician in G-13 tomorrow morning, presented through a real mobile booking journey rather than a demo dashboard.
+
+Prepared for development execution and design-agent handoff
+UPDATED UI DIRECTION: MOBILE-FIRST, NOT DEMO-LIKE
+Consumer-first UI, agent-powered backend. The main product should feel like a real mobile local-services app, not a dashboard or demo script.
+Primary navigation: Home, Bookings, Messages, Profile. Do not include Agent Trace, Mock Mode, Adapter Mode, MCP, or tool names in the main navigation.
+Primary mobile flow: Home -> Describe service need -> Review request -> Best match -> Book now -> Booking status.
+Use mobile-native patterns: bottom tabs, sticky bottom CTAs, bottom sheets, horizontal chips, safe-area padding, card stacks, skeleton loading, and large tap targets.
+Show agentic reasoning as customer-friendly copy: "Why this match?", "Booking activity", and "How we matched you." Keep the full technical trace in /dev/trace or expandable reviewer details.
+Winning angle: a production-style mobile local-services app where AI quietly handles multilingual understanding, provider matching, booking, reminders, and follow-up.
+1. Executive Development Direction
+This plan refines the challenge solution into a practical execution brief for an autonomous development agent. The priority is a working agentic backend paired with a production-style mobile-first customer experience. The app must not look like a demo dashboard; it should feel like a real local-services booking app while still demonstrating planning, tool use, decision-making, state change, and follow-up automation.
+The prototype should be reliable in mock mode, while remaining structurally ready for Google services such as Gemini, Google Places, Routes, Firestore, Firebase Cloud Messaging, and Cloud Functions.
+Build goal
+Parse a natural language service request in English, Urdu, or Roman Urdu.
+Resolve service type, location, date, and time window.
+Find candidate providers from mock data, with Google Places adapter compatibility.
+Rank providers with deterministic, explainable scoring.
+Create a simulated booking that writes real local state.
+Schedule a simulated reminder and completion follow-up.
+Produce trace logs and artifacts for judges and reviewers.
+Non-goals for the development sprint
+Do not build a desktop-style dashboard or expose technical traces in the main customer UI. Keep the experience mobile-first, polished enough to feel real, and focused on booking.
+Do not build a payment flow.
+Do not require real provider onboarding.
+Do not depend on real WhatsApp, SMS, or push delivery for the demo.
+Do not block the demo on API quotas, billing, API keys, or live internet availability.
+Development priority order
+Priority
+Focus
+Expected result
+1
+Agent workflow and tool execution
+One orchestration call runs the full lifecycle.
+2
+Clean mock data and state changes
+Booking, reminders, and traces are written locally.
+3
+Stable API contracts
+Mobile and design agents consume predictable fields.
+4
+Google-service compatibility
+Adapters can be enabled through environment flags.
+5
+Mobile-first consumer UI
+The workflow feels like a real local-services mobile app with Home, Bookings, Messages, Profile, and hidden dev trace.
+
+2. System Architecture
+Use a ports-and-adapters architecture. External capabilities are represented as interfaces. Mock/local implementations are the default. Google implementations can be swapped in later without changing the agent pipeline.
+Mobile shell   -> API contracts   -> Antigravity-orchestrated backend   -> Agent pipeline   -> Tool adapters       -> Mock provider/location/booking/reminder tools       -> Google service adapters, swappable later
+
+Layer
+Responsibility
+Development note
+Mobile app
+Captures user request and shows review, best match, booking confirmation, and booking status.
+Production-style mobile-first UX. Do not expose agent/tool internals in the main customer flow.
+API contracts
+Defines stable request and response objects.
+Use shared schemas so backend and mobile do not drift.
+Backend orchestrator
+Owns the service-request lifecycle.
+Primary place for agent logic, tool calls, and trace writing.
+Agents
+Break workflow into intent, location, discovery, ranking, booking, follow-up, and trace.
+Each agent returns typed data.
+Tool adapters
+Connect agents to mock or Google services.
+Switch with environment variables.
+State stores
+Persist bookings, reminders, notifications, and traces.
+Local JSON or SQLite first; Firestore later.
+
+3. Core Architecture Decision: Mock-first Adapters
+Mock mode is the default because judging and demos must be deterministic. Google-service adapters should be treated as interchangeable implementations behind the same interfaces.
+Capability
+Mock implementation
+Google-ready implementation
+Intent parsing
+MockIntentParser
+GeminiIntentParser with structured output
+Location resolution
+MockLocationResolver
+Google Geocoding or Places resolver
+Provider discovery
+MockProviderDiscovery
+Google Places provider discovery
+Distance calculation
+HaversineDistanceCalculator
+Google Routes distance calculator
+Booking store
+Local JSON or SQLite store
+Firestore booking store
+Notifications
+Mock notification logger
+Firebase Cloud Messaging service
+Reminders
+Mock reminder scheduler
+Cloud Functions or Scheduler adapter
+
+Demo safety rule: The final demo should run successfully with no Google API keys. Google adapters should compile and be documented, but mock mode remains the reliable default.
+
+4. Recommended Implementation Stack
+Area
+Recommendation
+Reason
+Monorepo
+TypeScript
+Shared language across mobile, backend, contracts, and MCP bridge.
+Mobile
+Expo React Native
+Fast mobile prototype with minimal shell and optional preview.
+Backend
+Node.js with Fastify or Express
+Simple API routes and easy local orchestration.
+Validation
+Zod
+Shared schemas and strong typed API contracts.
+Mock storage
+Local JSON or SQLite
+Visible state changes and easy inspection for demo.
+Cloud storage option
+Firestore
+Production-compatible document store for future real-time flows.
+AI parser option
+Gemini structured output
+JSON schema-compatible multilingual extraction.
+Maps option
+Google Places and Routes
+Provider discovery and travel-distance ranking.
+Orchestration
+Google Antigravity plus MCP tools
+Visible agent workflow, tool calls, artifacts, and traceable execution.
+
+5. Repository Structure
+Use a monorepo that separates mobile, API, MCP bridge, contracts, Antigravity workflows, and documentation. This allows the design agent to work on the mobile layer while the development agent continues backend orchestration.
+service-orchestrator/   apps/     mobile/       app/         index.tsx         request.tsx         review-request.tsx         best-match.tsx         booking.tsx         booking-status.tsx         dev-trace.tsx       src/         api/client.ts         contracts/ui-contracts.ts         components/MobileAppShell.tsx         components/ServiceSearchInput.tsx         components/ProviderMatchCard.tsx         components/BookingActivityTimeline.tsx      api/       src/         server.ts         routes/           orchestrate.ts           providers.ts           bookings.ts           traces.ts         agents/           orchestrator.ts           intent-agent.ts           location-agent.ts           discovery-agent.ts           ranking-agent.ts           booking-agent.ts           followup-agent.ts           trace-agent.ts         tools/           intent/           location/           providers/           distance/           booking/           notification/           reminder/         data/           providers.mock.json           locations.mock.json           service-taxonomy.json         traces/           .gitkeep      mcp-server/       src/         index.ts         tools/           parse-request.ts           resolve-location.ts           find-providers.ts           rank-providers.ts           create-booking.ts           schedule-reminder.ts           write-trace.ts    packages/     contracts/       src/         request.schema.ts         provider.schema.ts         booking.schema.ts         trace.schema.ts         api-response.schema.ts    antigravity/     workflows/       service-booking-demo.md       development-sprint.md       api-adapter-swap-test.md     artifacts/       .gitkeep    docs/     architecture.md     design-agent-brief.md     api-contracts.md     agent-trace-format.md     google-adapter-plan.md     assumptions.md    README.md   package.json   .env.example
+
+6. Environment Switches
+All external services should be controlled with environment variables. Mock mode is the default. Hybrid mode should try Google first and fall back to mock if the Google call fails.
+APP_MODE=demo  INTENT_MODE=mock LOCATION_MODE=mock PROVIDER_MODE=mock DISTANCE_MODE=mock BOOKING_STORE_MODE=local NOTIFICATION_MODE=mock REMINDER_MODE=mock  GOOGLE_MAPS_API_KEY= GEMINI_API_KEY= FIREBASE_PROJECT_ID= GOOGLE_APPLICATION_CREDENTIALS=
+
+Mode
+Meaning
+Use in demo
+mock
+Use local deterministic data and local state.
+Default and safest mode.
+google
+Use live Google service adapter.
+Use only when keys, quota, billing, and network are stable.
+hybrid
+Try Google first and fall back to mock.
+Good for showing compatibility without risking demo failure.
+
+7. Google-service Compatibility Plan
+7.1 Intent parsing
+Start with a deterministic parser for known demo patterns in English, Urdu, and Roman Urdu. The Google-ready implementation should use Gemini structured output with a strict schema.
+ServiceRequestSchema = {   originalText: string,   detectedLanguage: "urdu" | "roman_urdu" | "english" | "mixed",   serviceType: string,   normalizedServiceType: "ac_technician" | "plumber" | "electrician" |                          "tutor" | "beautician" | "cleaner" |                          "carpenter" | "unknown",   locationText: string,   cityHint?: string,   dateText: string,   resolvedDate: string,   timeText: string,   timeWindow: { start: string, end: string },   confidence: number }
+
+7.2 Provider discovery
+Mock provider data should be primary because many informal service providers will not be reliably indexed in public maps. The Google Places adapter can be used as an enhancement for real businesses and location search.
+Mock implementation reads apps/api/src/data/providers.mock.json.
+Filter providers by category, city, service area, distance radius, and availability.
+Google implementation uses Places Nearby Search or Text Search for provider candidates.
+Hybrid implementation merges Google candidates with mock data and marks each source.
+7.3 Distance calculation
+Mock implementation uses Haversine distance from mock coordinates.
+Google implementation uses Routes API route matrix for distance and duration.
+Ranking should store both raw distance and user-facing labels such as "2.1 km away".
+7.4 Booking, notifications, and reminders
+Area
+Mock-first behavior
+Google-ready behavior
+Booking store
+Write booking records to local JSON or SQLite.
+Write service_requests, bookings, and trace_events to Firestore.
+Notifications
+Write confirmation and reminder messages to logs.
+Send push notifications through Firebase Cloud Messaging.
+Reminders
+Create local reminder records with scheduled timestamps.
+Use Cloud Functions or Cloud Scheduler for timed reminders.
+
+8. Agent Workflow to Implement
+The backend should expose one orchestrator that calls specialized agents in sequence. Each agent should receive typed inputs, return typed outputs, and write trace events.
+OrchestratorAgent   -> IntentUnderstandingAgent   -> LocationResolutionAgent   -> ProviderDiscoveryAgent   -> ProviderRankingAgent   -> BookingAgent   -> FollowUpAgent   -> TraceAgent
+
+Agent
+Responsibility
+Key output
+OrchestratorAgent
+Owns full lifecycle and calls each step.
+Complete orchestration response.
+IntentUnderstandingAgent
+Extracts service, location, date, and time.
+Structured service request.
+LocationResolutionAgent
+Converts location text into formatted location and coordinates.
+Coordinates and location source.
+ProviderDiscoveryAgent
+Finds matching providers.
+Candidate provider list.
+ProviderRankingAgent
+Scores and ranks providers with explanations.
+Ranked providers and selected provider.
+BookingAgent
+Creates simulated booking and confirmation.
+Booking ID, status, confirmation message.
+FollowUpAgent
+Schedules reminder and completion check.
+Reminder record and follow-up message.
+TraceAgent
+Writes tool usage and decision logs.
+Trace ID and trace events.
+
+9. Agent Input and Output Contracts
+9.1 IntentUnderstandingAgent output
+{   "serviceType": "AC Technician",   "normalizedServiceType": "ac_technician",   "locationText": "G-13",   "city": "Islamabad",   "dateText": "kal",   "resolvedDate": "2026-05-17",   "timeText": "subah",   "timeWindow": {     "start": "09:00",     "end": "12:00"   },   "detectedLanguage": "roman_urdu",   "confidence": 0.94 }
+
+9.2 LocationResolutionAgent output
+{   "locationText": "G-13",   "formattedLocation": "G-13, Islamabad",   "lat": 33.6469,   "lng": 72.9615,   "source": "mock" }
+
+9.3 ProviderDiscoveryAgent output
+{   "providers": [     {       "id": "p_001",       "name": "Ali AC Services",       "category": "ac_technician",       "lat": 33.6602,       "lng": 72.9811,       "rating": 4.8,       "completedJobs": 312,       "responseRate": 0.96,       "availableSlots": ["2026-05-17T10:00:00+05:00"]     }   ],   "source": "mock" }
+
+9.4 ProviderRankingAgent output
+{   "rankedProviders": [     {       "providerId": "p_001",       "name": "Ali AC Services",       "score": 0.913,       "distanceKm": 2.1,       "availableSlot": "2026-05-17T10:00:00+05:00",       "reasonCodes": [         "available_in_requested_window",         "high_rating",         "nearby",         "strong_response_rate",         "high_completed_jobs"       ],       "explanation": "Selected because the provider is available tomorrow morning, 2.1 km away, rated 4.8, and has strong job history."     }   ] }
+
+9.5 BookingAgent output
+{   "bookingId": "BK-20260517-001",   "status": "confirmed",   "providerId": "p_001",   "providerName": "Ali AC Services",   "slot": "2026-05-17T10:00:00+05:00",   "confirmationMessage": "Booking confirmed with Ali AC Services for Sunday, May 17, 2026 at 10:00 AM.",   "stateChanged": true }
+
+9.6 FollowUpAgent output
+{   "reminderId": "REM-BK-20260517-001",   "reminderTime": "2026-05-17T09:00:00+05:00",   "reminderMessage": "Reminder: Ali AC Services will visit today at 10:00 AM for AC service in G-13.",   "completionCheckScheduled": true }
+
+9.7 TraceAgent output
+{   "traceId": "trace_001",   "events": [     {       "step": 1,       "agent": "IntentUnderstandingAgent",       "tool": "parse_request",       "status": "success",       "source": "mock",       "summary": "Extracted AC Technician, G-13, tomorrow morning."     },     {       "step": 2,       "agent": "ProviderRankingAgent",       "tool": "rank_providers",       "status": "success",       "source": "mock",       "summary": "Ali AC Services selected with score 0.913."     }   ] }
+
+10. API Contracts for Mobile and Design Agents
+The design agent should not depend on backend internals. The backend should return UI-ready labels, explanations, status text, and trace summaries. The mobile app should not calculate ranking explanations.
+10.1 Main orchestration endpoint
+POST /api/orchestrate  Request: {   "userId": "demo-user-001",   "text": "Mujhe kal subah G-13 mein AC technician chahiye",   "cityHint": "Islamabad",   "timezone": "Asia/Karachi" }
+
+Response: {   "traceId": "trace_001",   "requestUnderstanding": {     "serviceType": "AC Technician",     "location": "G-13, Islamabad",     "dateLabel": "Tomorrow",     "timeLabel": "Morning",     "timeWindowLabel": "9:00 AM - 12:00 PM",     "detectedLanguage": "Roman Urdu",     "confidence": 0.94   },   "recommendation": {     "providerId": "p_001",     "providerName": "Ali AC Services",     "rating": 4.8,     "distanceLabel": "2.1 km away",     "slotLabel": "10:00 AM",     "reason": "Closest available high-rated AC technician."   },   "alternatives": [     {       "providerId": "p_003",       "providerName": "CoolAir Islamabad",       "rating": 4.9,       "distanceLabel": "5.4 km away",       "slotLabel": "11:30 AM",       "reason": "Higher rating but farther away."     }   ],   "booking": {     "bookingId": "BK-20260517-001",     "status": "confirmed",     "confirmationMessage": "Booking confirmed with Ali AC Services for 10:00 AM.",     "reminderMessage": "Reminder scheduled for 9:00 AM."   },   "traceSummary": [     "Intent parsed successfully.",     "Location resolved to G-13, Islamabad.",     "3 providers found.",     "Ali AC Services selected.",     "Booking confirmed.",     "Reminder scheduled."   ] }
+
+10.2 Supporting endpoints
+Endpoint
+Purpose
+Used by
+GET /api/traces/:traceId
+Returns full agent trace events.
+Hidden dev route, expandable technical details, and reviewer artifacts only. Not a main customer tab.
+GET /api/bookings/:bookingId
+Returns booking status and reminder info.
+Booking Confirmation screen and status checks.
+GET /api/health
+Reports app mode and adapter readiness.
+Developer testing, hidden health panel, and demo readiness checks only.
+
+11. Design-agent Placement in the Plan
+The design agent should build a mobile-first consumer product experience once API contracts and screen states are stable. The app should look like a real local-services mobile app, not a demo dashboard. Developers should provide working screens with correct fields, loading states, error states, and hidden technical routes for reviewers.
+11.1 Design handoff package
+Create docs/design-agent-brief.md and docs/mobile-ui-plan.md with the screen list, required data, backend actions, mobile interaction patterns, component system, and constraints below.
+Screen
+Purpose
+Required data or action
+Home / Request Screen
+User describes the service need in a mobile-first consumer flow.
+ServiceSearchInput, example chips, city hint, popular service grid, sticky Find help CTA, loading state, POST /api/orchestrate.
+Review Request Screen
+Show extracted service, area, date, and time in friendly language.
+serviceType, location, dateLabel, timeLabel, timeWindowLabel, edit option, Find best match CTA.
+Best Match Screen
+Show selected provider as a polished mobile recommendation, not a technical ranking output.
+providerName, rating, distanceLabel, slotLabel, reason chips, alternatives, sticky Book now CTA.
+Booking Confirmation Screen
+Show completed booking and status as a real customer confirmation.
+bookingId, providerName, slot, confirmationMessage, reminderMessage, Call/Message/Reschedule/Cancel placeholders.
+Booking Activity + Hidden Technical Trace
+Show friendly booking activity in the customer flow; keep full agent/tool trace hidden for reviewers/devs.
+traceSummary as activity timeline, expandable How we matched you, full trace only at /dev/trace or reviewer link.
+
+11.2 Design constraints
+Support English, Urdu, and Roman Urdu text.
+Show reasoning in user-friendly language.
+Make the product feel consumer-first while still showing that the app understands, matches, books, reminds, and follows up.
+Do not design a payment flow for this sprint.
+Do not require real login for the demo.
+Separate customer-facing mobile UX from hidden reviewer/dev trace views and backend response contracts.
+12. Antigravity Workflows for Development
+Create three workflow files so Antigravity can guide development, run the demo, and validate adapter swapping.
+12.1 development-sprint.md
+Goal: Build the mock-first service orchestration backend and mobile-first consumer app.  Constraints: - Focus on agent workflow, APIs, tools, and logs. - Do not build a demo/dashboard UI. The customer app must look mobile-first and production-style; keep technical trace behind hidden reviewer/dev routes. - All external services must use adapter interfaces. - Mock mode must work without Google API keys. - Google adapters must be swappable through environment variables.  Tasks: 1. Create shared Zod contracts. 2. Build mock data for services, providers, and locations. 3. Build tool interfaces. 4. Build mock adapters. 5. Build all agents and orchestrator. 6. Build API routes. 7. Build the mobile-first consumer app screens. 8. Add demo script and verification checks. 9. Add documentation.
+
+12.2 service-booking-demo.md
+Goal: Run a complete service request lifecycle and generate demo artifacts.  Input: "Mujhe kal subah G-13 mein AC technician chahiye"  Steps: 1. Start backend in mock mode. 2. Call POST /api/orchestrate with demo input. 3. Validate extracted intent. 4. Validate provider ranking. 5. Validate booking was created. 6. Validate reminder was scheduled. 7. Fetch trace using GET /api/traces/:traceId. 8. Write artifacts:    - antigravity/artifacts/extracted-request.json    - antigravity/artifacts/provider-ranking.json    - antigravity/artifacts/booking-receipt.json    - antigravity/artifacts/agent-trace.md
+
+12.3 api-adapter-swap-test.md
+Goal: Prove that mock implementations can be swapped with Google service adapters.  Steps: 1. Run all tests in mock mode. 2. Set LOCATION_MODE=google if GOOGLE_MAPS_API_KEY exists. 3. Set DISTANCE_MODE=google if GOOGLE_MAPS_API_KEY exists. 4. Run location and distance tests. 5. If Google services fail, verify fallback to mock mode. 6. Produce adapter compatibility report.
+
+13. MCP Tool Bridge for Antigravity
+Expose local tools to Antigravity through MCP. The MCP tools should call the same backend services used by the API. This prevents duplicate business logic and makes traces consistent.
+MCP tool
+Purpose
+orchestrator.parse_request
+Parse user request into structured service request.
+orchestrator.resolve_location
+Resolve location text to formatted location and coordinates.
+orchestrator.find_providers
+Find provider candidates.
+orchestrator.rank_providers
+Rank providers and produce reason codes.
+orchestrator.create_booking
+Create simulated booking and local state change.
+orchestrator.schedule_reminder
+Create reminder and follow-up records.
+orchestrator.get_trace
+Fetch trace events for artifacts, hidden reviewer details, and /dev/trace.
+orchestrator.write_artifact
+Write JSON or markdown artifacts to antigravity/artifacts.
+
+Example MCP tool contract: {   "name": "orchestrator.create_booking",   "description": "Creates a simulated booking and writes booking state to local store.",   "inputSchema": {     "type": "object",     "properties": {       "requestId": { "type": "string" },       "providerId": { "type": "string" },       "slot": { "type": "string" }     },     "required": ["requestId", "providerId", "slot"]   } }
+
+14. Mock Dataset Requirements
+The mock dataset must be realistic enough to demonstrate ranking quality, edge cases, fallback behavior, and state changes.
+14.1 Provider fields
+{   "id": "p_001",   "name": "Ali AC Services",   "category": "ac_technician",   "city": "Islamabad",   "areasServed": ["G-13", "G-11", "F-10", "F-11"],   "lat": 33.6602,   "lng": 72.9811,   "rating": 4.8,   "completedJobs": 312,   "responseRate": 0.96,   "verificationStatus": "verified",   "priceLevel": "medium",   "availableSlots": [     "2026-05-17T10:00:00+05:00",     "2026-05-17T11:30:00+05:00"   ] }
+
+14.2 Must-have demo cases
+Case
+Input example
+Expected behavior
+1
+Mujhe kal subah G-13 mein AC technician chahiye
+Select Ali AC Services and confirm 10:00 AM booking.
+2
+Need plumber in F-10 today evening
+Parse English request and rank available plumbers.
+3
+مجھے آج شام الیکٹریشن چاہیے
+Parse Urdu request; ask for or infer location based on city hint.
+4
+Need electrician today
+Return missing location state.
+5
+Need beautician in F-11
+Return missing time state or default time suggestions.
+6
+Closest provider unavailable
+Rank available provider above closest unavailable provider.
+7
+No exact category match
+Show fallback suggestions and trace category mismatch.
+
+15. Ranking Logic
+The ranking logic should be deterministic and explainable. It must generate scores, reason codes, and user-facing explanations.
+score =   0.30 * availabilityScore +   0.25 * ratingScore +   0.20 * distanceScore +   0.15 * reliabilityScore +   0.10 * responseScore  availabilityScore:   1.0 = available inside requested time window   0.6 = available same day but outside requested window   0.0 = unavailable  ratingScore = rating / 5  distanceScore = 1 - min(distanceKm / 10, 1)  reliabilityScore = min(completedJobs / 300, 1)  responseScore = responseRate
+
+Reason code
+Meaning
+available_in_requested_window
+Provider has a slot inside the user-requested time window.
+closest_available_provider
+Provider is the nearest provider that can serve in the requested window.
+high_rating
+Provider rating is strong relative to alternatives.
+high_completed_jobs
+Provider has strong job history.
+fast_response_rate
+Provider has a high simulated response rate.
+outside_requested_time
+Provider is available only outside the requested window.
+too_far
+Provider is farther than better options.
+category_mismatch
+Provider does not exactly match requested category.
+
+Backend responsibility: The backend should return UI-ready explanations. The mobile app should display reasoning, not calculate it.
+
+16. Development Milestones
+Milestone
+Deliverables
+Exit criteria
+1. Contracts and mock data
+Shared Zod schemas, providers.mock.json, locations.mock.json, service-taxonomy.json, API response examples.
+Mock request can be parsed into structured JSON.
+2. Agent pipeline
+Orchestrator, all seven agents, trace writer, ranking formula.
+One function call executes full lifecycle and returns booking confirmation.
+3. API layer
+POST /api/orchestrate, GET /api/traces/:traceId, GET /api/bookings/:bookingId.
+curl or Postman demo works end-to-end.
+4. Mobile-first consumer app
+Home, request review, best match, booking confirmation, booking status, booking activity, hidden technical trace.
+App looks and feels like a real local-services mobile product, not a demo dashboard.
+5. Antigravity orchestration
+Workflow files, MCP tool bridge, generated artifacts.
+Antigravity can trigger demo workflow and produce trace artifacts.
+6. Google adapter stubs
+Gemini, Places, Routes, Firestore, FCM, Cloud Functions adapters.
+Adapters compile, are documented, and can be enabled by env flags.
+
+17. Test Plan
+17.1 Unit tests
+Parses Roman Urdu request.
+Parses English request.
+Parses Urdu request.
+Resolves G-13 to Islamabad coordinates.
+Filters providers by service category.
+Calculates distance correctly.
+Ranks unavailable closest provider below available provider.
+Creates booking state.
+Schedules reminder state.
+Writes trace events.
+17.2 Integration tests
+POST /api/orchestrate should create a complete response containing extracted request, ranked provider list, booking, confirmation message, reminder, and trace events.
+17.3 Demo test
+Input: "Mujhe kal subah G-13 mein AC technician chahiye"  Expected: serviceType = AC Technician location = G-13, Islamabad provider = Ali AC Services slot = 10:00 AM booking.status = confirmed reminder.scheduled = true trace.events.length >= 6
+
+18. README Focus
+The README should be written for judges and developers, not designers. It should clearly explain why the system is agentic and how Google Antigravity is used.
+README section
+Content to include
+What it does
+Agentic AI service orchestration for informal economy bookings.
+Why it is not a listing app
+Intent understanding, provider discovery, ranking, booking state change, follow-up, trace logs.
+How Google Antigravity is used
+Workflow control, MCP tools, generated artifacts, traceable execution.
+Architecture
+Mobile app -> API -> Orchestrator -> Agents -> Tools -> Mock/Google adapters -> Hidden trace artifacts.
+Mock-first strategy
+Mock is default for demo reliability; Google adapters can be swapped in.
+Google services compatibility
+Gemini, Places, Routes, Firestore, FCM, Cloud Functions.
+Running locally
+Install, seed data, start API, start mobile, run Antigravity workflow.
+Demo scenario
+Roman Urdu request for an AC technician in G-13 tomorrow morning, presented through a real mobile booking journey rather than a demo dashboard.
+Limitations
+Simulated booking, no real provider contact, mock ratings and availability, optional Google APIs.
+
+19. Final Execution Brief for the Development Agent
+Build a mock-first, Google-service-compatible agentic service orchestration prototype.  Do not focus on UI polish. Build a minimal Expo mobile shell only so the app can demonstrate the workflow. Visual design will be handled separately by a design agent.  Core requirements: 1. TypeScript monorepo. 2. Shared contracts using Zod. 3. Node backend with POST /api/orchestrate. 4. Agent pipeline:    - IntentUnderstandingAgent    - LocationResolutionAgent    - ProviderDiscoveryAgent    - ProviderRankingAgent    - BookingAgent    - FollowUpAgent    - TraceAgent 5. Mock adapters must work without API keys. 6. Google adapters must be interchangeable through env flags. 7. Booking must create a real local state change. 8. Reminder must create a real local scheduled-reminder record. 9. Trace logs must show every agent step and tool call. 10. Antigravity workflows and MCP tools must be included. 11. Create docs/design-agent-brief.md so a separate design agent can start UI work from screen contracts. 12. Ensure the sample request works end-to-end:     "Mujhe kal subah G-13 mein AC technician chahiye"
+
+20. References for Google-service Adapters
+Use these as implementation references when converting mock adapters to Google-backed adapters. The mock workflow should remain functional without these services.
+Area
+Reference
+Google Antigravity workflows and MCP
+Antigravity documentation: Rules, workflows, and MCP integration.
+Gemini structured output
+Gemini API documentation for structured JSON outputs.
+Provider discovery
+Google Places API documentation for Nearby Search and Text Search.
+Distance and duration
+Google Routes API documentation for Compute Route Matrix.
+Booking store
+Firebase Firestore documentation.
+Notifications
+Firebase Cloud Messaging documentation.
+Scheduled reminders
+Firebase scheduled functions and Cloud Scheduler documentation.
+
+21. Evaluation Mapping
+Evaluation item
+How the plan addresses it
+Google Antigravity - 25%
+Antigravity workflows, MCP tool bridge, generated artifacts, traceable orchestration.
+Agentic reasoning - 20%
+Structured pipeline from intent to follow-up with typed agent outputs and trace logs.
+Matching quality - 20%
+Deterministic ranking formula using availability, rating, distance, reliability, and response rate.
+Action simulation - 15%
+Booking state change, confirmation message, reminder record, completion follow-up.
+Technical implementation - 10%
+TypeScript monorepo, shared contracts, adapters, API routes, tests.
+Innovation and UX - 10%
+Urdu/Roman Urdu support, informal economy focus, clear AI workflow, design-agent handoff.
+
+Winning angle: The system is not a directory. It is an Antigravity-orchestrated service agent that understands a multilingual request, reasons over nearby providers, takes a booking action, updates system state, and automates follow-up.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+22. Mobile-First UI Execution Brief
+Build the customer experience as a real mobile app first, with web preview only as a secondary convenience. The customer should never feel they are looking at a hackathon demo, backend console, or trace viewer.
+22.1 Product positioning
+Production-style local-services mobile app for everyday customers in Pakistan.
+AI agent quietly handles messy multilingual request understanding, matching, booking, reminders, and follow-up.
+The app should feel closer to Careem/Uber reliability plus local service booking, not an admin dashboard.
+22.2 Main navigation
+Home: service request entry, popular services, examples, and recent booking shortcut.
+Bookings: upcoming/past booking cards with statuses and reminders.
+Messages: placeholder for provider communication.
+Profile: user details, location defaults, language preferences, and support.
+Hidden routes only: /dev/trace, /dev/health, /demo-script.
+22.3 Main customer flow
+Home -> Describe service need -> Review request -> Best match -> Book now -> Booking confirmed -> Booking status.
+Rename technical screens: Understanding becomes Review request; Recommendation becomes Best match; Agent Trace becomes Booking activity or How we matched you.
+Use sticky bottom actions for primary CTAs: Find help, Find best match, Book now, View booking.
+22.4 Required mobile components
+MobileAppShell, BottomTabBar, TopGreetingHeader, ServiceSearchInput, PopularServiceGrid, ExampleChipRow, StickyBottomAction.
+RequestReviewCard, ProviderMatchCard, ReasonChip, BookingSummaryCard, BookingActionGrid, BookingActivityTimeline.
+ExpandableMatchDetails, LoadingStepSheet, EmptyState, ErrorState, MissingLocationPrompt, MissingTimeBottomSheet.
+22.5 Copy rules
+Say "We understood your request" instead of "Intent parsed successfully."
+Say "We found the best available match" instead of "ProviderRankingAgent selected provider."
+Say "Your booking is confirmed" instead of "BookingAgent created booking."
+Say "Reminder set" instead of "Mock reminder scheduled."
+Never show Mock Mode, Adapter Mode, MCP, or raw tool names in the main customer UI.
+Change log for this revision: Updated UI scope, design-agent handoff, screen names, mobile component plan, milestone 4, README architecture wording, and final execution brief to require a mobile-first production-style app rather than a demo/dashboard experience.
