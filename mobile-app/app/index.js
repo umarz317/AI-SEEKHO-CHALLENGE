@@ -230,7 +230,7 @@ export default function HomeScreen() {
                   backgroundColor: M.surface,
                   borderRadius: 14, padding: 10,
                   borderWidth: 1, borderColor: M.border,
-                  width: 64,
+                  minWidth: 72,
                 }}
               >
                 <View style={{
@@ -240,7 +240,7 @@ export default function HomeScreen() {
                 }}>
                   <Ic name={cat.icon} size={18} color={cat.color} weight={2} />
                 </View>
-                <Text style={{ fontSize: 10.5, fontWeight: '600', color: M.text }}>{cat.label}</Text>
+                <Text numberOfLines={1} style={{ fontSize: 10.5, fontWeight: '600', color: M.text }}>{cat.label}</Text>
               </TouchableOpacity>
             ))}
           </ScrollView>
