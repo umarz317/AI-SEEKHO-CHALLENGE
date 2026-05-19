@@ -280,14 +280,29 @@ function mapPriceLevel(priceLevel) {
 }
 
 function buildSyntheticSlots(index) {
-  const baseDate = '2026-05-17';
   const slots = [
     ['10:00:00', '11:30:00'],
     ['09:30:00', '14:00:00'],
     ['11:00:00', '16:00:00'],
     ['12:00:00', '18:00:00'],
   ];
-  return slots[index % slots.length].map((time) => `${baseDate}T${time}+05:00`);
+  const chosen = slots[index % slots.length];
+  return chosen.map((time) => `${nextSlotDate(time)}T${time}+05:00`);
+}
+
+// Return YYYY-MM-DD for today if the slot time is still ahead in PKT, otherwise tomorrow.
+// Prevents synthetic slots (and the 1-hour-before reminders derived from them) from
+// landing in the past — which would cause the scheduler to fire immediately.
+function nextSlotDate(timeOfDay) {
+  const nowPkt = new Date(Date.now() + 5 * 60 * 60 * 1000); // shift to PKT
+  const [h, m] = timeOfDay.split(':').map(Number);
+  const todayMinutes = nowPkt.getUTCHours() * 60 + nowPkt.getUTCMinutes();
+  const slotMinutes = h * 60 + m;
+  // Reminder fires 1h before slot, so require at least 90 min lead time to keep it in the future
+  const useTomorrow = slotMinutes - todayMinutes < 90;
+  const target = new Date(nowPkt);
+  if (useTomorrow) target.setUTCDate(target.getUTCDate() + 1);
+  return target.toISOString().slice(0, 10);
 }
 
 function normalizePageSize(value) {

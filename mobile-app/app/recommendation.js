@@ -5,13 +5,14 @@ import {
   LayoutAnimation, Platform, UIManager,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import Svg, { Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
+import Svg, { Circle, Defs, LinearGradient, Stop, Rect } from 'react-native-svg';
 import TopBar from '../src/components/TopBar';
 import BottomNav from '../src/components/BottomNav';
 import MCard from '../src/components/MCard';
 import Avatar from '../src/components/Avatar';
 import Pill from '../src/components/Pill';
 import Ic from '../src/components/Ic';
+import MiniMap from '../src/components/MiniMap';
 import { AccentBtn } from '../src/components/Buttons';
 import { M } from '../src/theme';
 import { MDATA } from '../src/data';
@@ -89,7 +90,7 @@ function ScoreArc({ value, size = 120, stroke = 10, gradient }) {
             <Stop offset="1" stopColor={g2} />
           </LinearGradient>
         </Defs>
-        <Circle cx={size / 2} cy={size / 2} r={r} stroke={M.divider} strokeWidth={stroke} fill="none" />
+        <Circle cx={size / 2} cy={size / 2} r={r} stroke={g1} strokeOpacity={0.1} strokeWidth={stroke} fill="none" />
         <Circle
           cx={size / 2} cy={size / 2} r={r}
           stroke="url(#scoreGrad)" strokeWidth={stroke} fill="none"
@@ -143,8 +144,8 @@ export default function RecommendationScreen() {
 
   const [primary, setPrimary] = useState(aiPick);
   const [showAlt, setShowAlt] = useState(false);
+  const [showScoring, setShowScoring] = useState(false);
   const [sortBy, setSortBy]   = useState('score');
-  const [saved, setSaved]     = useState(false);
   const [confirming, setConfirming] = useState(false);
 
   const bookingId = apiResult?.booking?.bookingId;
@@ -186,8 +187,11 @@ export default function RecommendationScreen() {
 
   const onShare = async () => {
     try {
+      const locationText = primary.googleMapsUri 
+        ? primary.googleMapsUri 
+        : (primary.distance ? `${primary.distance} away` : '');
       await Share.share({
-        message: `Check out ${name} — ${primary.rating}★ · ${primary.distance || ''} · ${primary.availability || ''}`.trim(),
+        message: `Check out ${name} (${primary.rating}★)${locationText ? ` at: ${locationText}` : ''}`,
       });
     } catch {}
   };
@@ -248,20 +252,12 @@ export default function RecommendationScreen() {
         subtitle={isAiPick ? `Top of ${totalProviders} providers` : `You picked · ${totalProviders} options`}
         onBack={() => router.back()}
         action={
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, marginRight: 4 }}>
-            <TouchableOpacity
-              onPress={() => setSaved((v) => !v)}
-              style={{ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }}
-            >
-              <Ic name="heart" size={20} color={saved ? M.error : M.text} fill={saved} weight={2} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={onShare}
-              style={{ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' }}
-            >
-              <Ic name="share" size={18} color={M.text} weight={2} />
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity
+            onPress={onShare}
+            style={{ width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', marginRight: 4 }}
+          >
+            <Ic name="share" size={18} color={M.text} weight={2} />
+          </TouchableOpacity>
         }
       />
       <ScrollView
@@ -270,94 +266,99 @@ export default function RecommendationScreen() {
       >
         {/* ---- Hero ---- */}
         <MCard style={{ marginBottom: 12, overflow: 'hidden' }}>
-          {/* Gradient backdrop */}
-          <View style={{ position: 'relative', paddingTop: 18, paddingBottom: 14, paddingHorizontal: 16 }}>
-            <View style={{
-              position: 'absolute', top: 0, left: 0, right: 0, height: 92,
-              backgroundColor: gradient[0], opacity: 0.12,
-            }} />
-            <View style={{
-              position: 'absolute', top: 0, left: 0, right: 0, height: 92,
-              backgroundColor: gradient[1], opacity: 0.06,
-            }} />
+          {/* Premium Gradient backdrop */}
+          <View style={{ position: 'relative' }}>
+            <Svg width="100%" height={92} style={{ position: 'absolute', top: 0, left: 0, right: 0 }}>
+              <Defs>
+                <LinearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">
+                  <Stop offset="0" stopColor={gradient[0]} stopOpacity="0.14" />
+                  <Stop offset="1" stopColor={gradient[1]} stopOpacity="0.0" />
+                </LinearGradient>
+              </Defs>
+              <Rect width="100%" height={100} fill="url(#bgGrad)" />
+              <Circle cx="90%" cy="15" r="95" fill={gradient[0]} opacity="0.08" />
+              <Circle cx="80%" cy="80" r="65" fill={gradient[1]} opacity="0.04" />
+            </Svg>
 
-            {/* Top row: AI badge / Restore */}
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-              {isAiPick ? (
-                <View style={{
-                  flexDirection: 'row', alignItems: 'center', gap: 5,
-                  backgroundColor: M.accentSoft, borderRadius: 8,
-                  paddingHorizontal: 9, paddingVertical: 4,
-                }}>
-                  <Ic name="sparkle" size={11} color={M.accentDeep} fill />
-                  <Text style={{ fontSize: 10, fontWeight: '800', color: M.accentDeep, letterSpacing: 0.6 }}>
-                    AI PICK
-                  </Text>
-                </View>
-              ) : (
-                <TouchableOpacity
-                  onPress={restoreAiPick}
-                  style={{
+            <View style={{ paddingTop: 18, paddingBottom: 14, paddingHorizontal: 16 }}>
+              {/* Top row: AI badge / Restore */}
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                {isAiPick ? (
+                  <View style={{
                     flexDirection: 'row', alignItems: 'center', gap: 5,
-                    backgroundColor: M.amberBg, borderRadius: 8,
+                    backgroundColor: M.accentSoft, borderRadius: 8,
                     paddingHorizontal: 9, paddingVertical: 4,
-                  }}
-                >
-                  <Ic name="back" size={11} color={M.amber} weight={2} />
-                  <Text style={{ fontSize: 10, fontWeight: '800', color: M.amber, letterSpacing: 0.6 }}>
-                    RESTORE AI PICK
+                  }}>
+                    <Ic name="sparkle" size={11} color={M.accentDeep} fill />
+                    <Text style={{ fontSize: 10, fontWeight: '800', color: M.accentDeep, letterSpacing: 0.6 }}>
+                      AI PICK
+                    </Text>
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    onPress={restoreAiPick}
+                    style={{
+                      flexDirection: 'row', alignItems: 'center', gap: 5,
+                      backgroundColor: M.amberBg, borderRadius: 8,
+                      paddingHorizontal: 9, paddingVertical: 4,
+                    }}
+                  >
+                    <Ic name="back" size={11} color={M.amber} weight={2} />
+                    <Text style={{ fontSize: 10, fontWeight: '800', color: M.amber, letterSpacing: 0.6 }}>
+                      RESTORE AI PICK
+                    </Text>
+                  </TouchableOpacity>
+                )}
+                {primary.verified && (
+                  <View style={{
+                    flexDirection: 'row', alignItems: 'center', gap: 4,
+                    backgroundColor: '#fff', borderRadius: 8, borderWidth: 1, borderColor: M.divider,
+                    paddingHorizontal: 8, paddingVertical: 3,
+                  }}>
+                    <Ic name="shield" size={11} color={M.accent} fill />
+                    <Text style={{ fontSize: 10, fontWeight: '800', color: M.accentDeep, letterSpacing: 0.4 }}>VERIFIED</Text>
+                  </View>
+                )}
+              </View>
+
+              {/* Identity + score */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 8 }}>
+                <Avatar initials={initials} gradient={gradient} size={64} />
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text
+                    numberOfLines={2}
+                    style={{ fontSize: 19, fontWeight: '800', color: M.text, letterSpacing: -0.3 }}
+                  >
+                    {name}
                   </Text>
-                </TouchableOpacity>
-              )}
-              {primary.verified && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 4 }}>
+                    <Ic name="star" size={13} color={M.amber} fill />
+                    <Text style={{ fontWeight: '800', fontSize: 14, color: M.text }}>{primary.rating || '—'}</Text>
+                    <Text style={{ fontSize: 12, color: M.textMute }}>
+                      · {primary.reviews || 0} reviews{primary.yearsActive ? ` · ${primary.yearsActive} yrs` : ''}
+                    </Text>
+                  </View>
+                </View>
+                <ScoreArc value={primary.score || 0} size={92} stroke={8} gradient={gradient} />
+              </View>
+
+              {/* Comparison line */}
+              {alts.length > 0 && scoreGap > 0 && isAiPick && (
                 <View style={{
-                  flexDirection: 'row', alignItems: 'center', gap: 4,
-                  backgroundColor: '#fff', borderRadius: 8, borderWidth: 1, borderColor: M.divider,
-                  paddingHorizontal: 8, paddingVertical: 3,
+                  flexDirection: 'row', alignItems: 'center', gap: 6,
+                  backgroundColor: M.surfaceLow, borderRadius: 8,
+                  paddingHorizontal: 10, paddingVertical: 6, marginTop: 6,
+                  borderWidth: 1, borderColor: M.divider,
                 }}>
-                  <Ic name="shield" size={11} color={M.accent} fill />
-                  <Text style={{ fontSize: 10, fontWeight: '800', color: M.accentDeep, letterSpacing: 0.4 }}>VERIFIED</Text>
+                  <Ic name="zap" size={12} color={M.accentDeep} fill />
+                  <Text style={{ fontSize: 11.5, color: M.textMute, flex: 1 }}>
+                    Beats other matches by{' '}
+                    <Text style={{ fontWeight: '800', color: M.accentDeep }}>+{scoreGap} pts</Text>
+                    {' '}(avg {avgAltScore})
+                  </Text>
                 </View>
               )}
             </View>
-
-            {/* Identity + score */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 8 }}>
-              <Avatar initials={initials} gradient={gradient} size={64} />
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text
-                  numberOfLines={2}
-                  style={{ fontSize: 19, fontWeight: '800', color: M.text, letterSpacing: -0.3 }}
-                >
-                  {name}
-                </Text>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 4 }}>
-                  <Ic name="star" size={13} color={M.amber} fill />
-                  <Text style={{ fontWeight: '800', fontSize: 14, color: M.text }}>{primary.rating || '—'}</Text>
-                  <Text style={{ fontSize: 12, color: M.textMute }}>
-                    · {primary.reviews || 0} reviews{primary.yearsActive ? ` · ${primary.yearsActive} yrs` : ''}
-                  </Text>
-                </View>
-              </View>
-              <ScoreArc value={primary.score || 0} size={92} stroke={8} gradient={gradient} />
-            </View>
-
-            {/* Comparison line */}
-            {alts.length > 0 && scoreGap > 0 && isAiPick && (
-              <View style={{
-                flexDirection: 'row', alignItems: 'center', gap: 6,
-                backgroundColor: M.surfaceLow, borderRadius: 8,
-                paddingHorizontal: 10, paddingVertical: 6, marginTop: 6,
-                borderWidth: 1, borderColor: M.divider,
-              }}>
-                <Ic name="zap" size={12} color={M.accentDeep} fill />
-                <Text style={{ fontSize: 11.5, color: M.textMute, flex: 1 }}>
-                  Beats other matches by{' '}
-                  <Text style={{ fontWeight: '800', color: M.accentDeep }}>+{scoreGap} pts</Text>
-                  {' '}(avg {avgAltScore})
-                </Text>
-              </View>
-            )}
           </View>
 
           {/* Stats strip */}
@@ -387,9 +388,22 @@ export default function RecommendationScreen() {
             ))}
           </View>
 
+          {/* Mini-map: user → provider with animated route */}
+          <MiniMap
+            key={primary.providerId || name}
+            distanceLabel={primary.distance ? `${primary.distance}` : null}
+            providerColor={gradient[0]}
+            providerGradient={gradient}
+            providerLat={primary.lat}
+            providerLng={primary.lng}
+            userLat={apiResult?.userLocation?.lat}
+            userLng={apiResult?.userLocation?.lng}
+          />
+
           {/* Quick actions */}
           <View style={{
             flexDirection: 'row', gap: 8, padding: 12,
+            borderTopWidth: 1, borderTopColor: M.divider,
             borderBottomWidth: 1, borderBottomColor: M.divider,
           }}>
             {primary.googleMapsUri && (
@@ -399,12 +413,6 @@ export default function RecommendationScreen() {
               onPress={() => Linking.openURL('tel:+92').catch(() => {})} />
             <QuickAction icon="msg" label="Message"
               onPress={() => Linking.openURL('sms:+92').catch(() => {})} />
-            <QuickAction
-              icon="heart"
-              label={saved ? 'Saved' : 'Save'}
-              active={saved}
-              onPress={() => setSaved((v) => !v)}
-            />
           </View>
 
           {/* Description */}
@@ -422,44 +430,64 @@ export default function RecommendationScreen() {
             </View>
           )}
 
-          {/* Score breakdown */}
-          <View style={{ padding: 14, borderBottomWidth: 1, borderBottomColor: M.divider }}>
-            <Text style={{
-              fontSize: 10, fontWeight: '800', color: M.textDim,
-              textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 10,
-            }}>
-              How we scored this match
-            </Text>
-            {breakdown.map((b) => (
-              <BreakdownBar key={b.label} {...b} />
-            ))}
-          </View>
-
-          {/* Reasons */}
-          {!!(primary.reasons && primary.reasons.length) && (
-            <View style={{ padding: 14 }}>
+          {/* Combined: Why this provider & How we scored */}
+          <View style={{ borderBottomWidth: 1, borderBottomColor: M.divider }}>
+            <TouchableOpacity
+              onPress={() => {
+                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                setShowScoring((v) => !v);
+              }}
+              style={{
+                flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+                padding: 14,
+              }}
+            >
               <Text style={{
                 fontSize: 10, fontWeight: '800', color: M.textDim,
-                textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8,
+                textTransform: 'uppercase', letterSpacing: 0.8,
               }}>
-                Why this provider
+                Why this provider & how we scored
               </Text>
-              <View style={{ gap: 6 }}>
-                {primary.reasons.map((r, i) => (
-                  <View key={i} style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-start' }}>
-                    <View style={{
-                      width: 18, height: 18, borderRadius: 9, marginTop: 1,
-                      backgroundColor: M.accentSoft,
-                      alignItems: 'center', justifyContent: 'center',
-                    }}>
-                      <Ic name="check" size={10} color={M.accentDeep} weight={3} />
-                    </View>
-                    <Text style={{ flex: 1, fontSize: 13, color: M.text, lineHeight: 19 }}>{r}</Text>
-                  </View>
-                ))}
+              <View style={{ transform: [{ rotate: showScoring ? '180deg' : '0deg' }] }}>
+                <Ic name="chev" size={12} color={M.textDim} weight={2} />
               </View>
-            </View>
-          )}
+            </TouchableOpacity>
+
+            {showScoring && (
+              <View style={{ paddingHorizontal: 14, paddingBottom: 14 }}>
+                {/* Reasons list first */}
+                {!!(primary.reasons && primary.reasons.length) && (
+                  <View style={{ marginBottom: 16 }}>
+                    <View style={{ gap: 6 }}>
+                      {primary.reasons.map((r, i) => (
+                        <View key={i} style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-start' }}>
+                          <View style={{
+                            width: 18, height: 18, borderRadius: 9, marginTop: 1,
+                            backgroundColor: M.accentSoft,
+                            alignItems: 'center', justifyContent: 'center',
+                          }}>
+                            <Ic name="check" size={10} color={M.accentDeep} weight={3} />
+                          </View>
+                          <Text style={{ flex: 1, fontSize: 13, color: M.text, lineHeight: 19 }}>{r}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+                )}
+
+                {/* Score breakdown bars */}
+                <View style={{
+                  borderTopWidth: (primary.reasons && primary.reasons.length) ? 1 : 0,
+                  borderTopColor: M.divider,
+                  paddingTop: (primary.reasons && primary.reasons.length) ? 14 : 0
+                }}>
+                  {breakdown.map((b) => (
+                    <BreakdownBar key={b.label} {...b} />
+                  ))}
+                </View>
+              </View>
+            )}
+          </View>
         </MCard>
 
         {/* ---- Alternatives header ---- */}

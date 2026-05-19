@@ -1,15 +1,15 @@
 // agents/followUpAgent.js — Agent 6: Follow-up / Reminder
-// Schedules a simulated reminder for the booking
+// Schedules provider and user reminders for confirmed bookings
 
 const store = require('../storage/localStore');
 const { runWithAdapter, googleStubs } = require('../tools/mode');
 
 /**
- * @param {{ bookingId: string, providerName: string, slot: string, formattedLocation: string }} input
+ * @param {{ bookingId: string, providerName: string, slot: string, slotLabel?: string, formattedLocation: string, serviceType?: string }} input
  * @returns {object} reminder info
  */
 async function run(input) {
-  const { bookingId, providerName, slot, formattedLocation } = input;
+  const { bookingId, providerName, slot, slotLabel, formattedLocation, serviceType } = input;
 
   const mockImpl = async () => {
     if (!bookingId || !slot) {
@@ -26,30 +26,68 @@ async function run(input) {
     const h12 = h > 12 ? h - 12 : h === 0 ? 12 : h;
     const reminderTimeLabel = `${h12}:${m.toString().padStart(2, '0')} ${ampm}`;
 
-    const reminder = {
-      reminderId: `REM-${bookingId}`,
+    const providerMessage = `Reminder: booking ${bookingId} is coming up. ${serviceType || 'Service'} in ${formattedLocation || 'the customer area'} at ${slotLabel || formatSlotTime(slotDate)}.`;
+    const userMessage = `Reminder: ${providerName || 'Your provider'} will visit at ${slotLabel || formatSlotTime(slotDate)} for ${serviceType || 'your service'} in ${formattedLocation || 'your location'}.`;
+    const createdAt = new Date().toISOString();
+    const base = {
       bookingId,
       reminderTime: reminderDate.toISOString(),
+      scheduledFor: reminderDate.toISOString(),
       reminderTimeLabel,
-      reminderMessage: `Reminder: ${providerName} will visit today at ${formatSlotTime(slotDate)} for service in ${formattedLocation || 'your location'}.`,
       completionCheckScheduled: true,
       status: 'scheduled',
-      createdAt: new Date().toISOString(),
+      sentAt: null,
+      error: null,
+      createdAt,
     };
 
-    store.insert('reminders', reminder);
-    store.insert('notifications', {
-      notificationId: `NOTIF-${bookingId}`,
-      bookingId,
-      type: 'reminder',
-      channel: 'mock_log',
-      message: reminder.reminderMessage,
-      scheduledFor: reminder.reminderTime,
-      status: 'scheduled',
-      createdAt: reminder.createdAt,
-    });
+    const reminders = [
+      {
+        ...base,
+        reminderId: `REM-${bookingId}-provider`,
+        recipientType: 'provider',
+        channel: 'twilio_whatsapp',
+        message: providerMessage,
+        reminderMessage: providerMessage,
+      },
+      {
+        ...base,
+        reminderId: `REM-${bookingId}-user`,
+        recipientType: 'user',
+        channel: 'expo_push',
+        message: userMessage,
+        reminderMessage: userMessage,
+      },
+    ];
 
-    return reminder;
+    for (const reminder of reminders) {
+      store.upsertById('reminders', 'reminderId', reminder.reminderId, reminder);
+      store.upsertById('notifications', 'notificationId', `NOTIF-${reminder.reminderId}`, {
+        notificationId: `NOTIF-${reminder.reminderId}`,
+        bookingId,
+        type: 'reminder',
+        recipientType: reminder.recipientType,
+        channel: reminder.channel,
+        message: reminder.message,
+        scheduledFor: reminder.scheduledFor,
+        status: reminder.status,
+        sentAt: reminder.sentAt,
+        error: reminder.error,
+        createdAt: reminder.createdAt,
+      });
+    }
+
+    return {
+      reminderId: `REM-${bookingId}`,
+      bookingId,
+      reminders,
+      reminderTime: base.reminderTime,
+      scheduledFor: base.scheduledFor,
+      reminderTimeLabel,
+      reminderMessage: userMessage,
+      status: 'scheduled',
+      createdAt,
+    };
   };
 
   return runWithAdapter('reminder', mockImpl, googleStubs.reminder);

@@ -7,8 +7,10 @@ const bookingAgent = require('../agents/bookingAgent');
 const followUpAgent = require('../agents/followUpAgent');
 const traceAgent = require('../agents/traceAgent');
 const store = require('../storage/localStore');
+const conversationService = require('../services/conversationService');
 const { parseProviderReply } = require('../services/providerReplyParser');
 const { validateTwilioSignature } = require('../services/providerMessaging');
+const { registerPushToken } = require('../services/pushNotifications');
 const { emitBookingUpdated } = require('../services/realtime');
 const { requireAuth } = require('../middleware/auth');
 
@@ -18,8 +20,9 @@ const { requireAuth } = require('../middleware/auth');
  */
 router.post('/orchestrate', requireAuth, async (req, res) => {
   try {
-    const { userId, text, cityHint, timezone } = req.body;
+    const { userId, text, cityHint, timezone, customerPhone } = req.body;
     const effectiveUserId = req.userId || userId || 'demo-user-001';
+    const effectiveCustomerPhone = req.userPhone || customerPhone || null;
 
     if (!text || text.trim().length === 0) {
       return res.status(400).json({
@@ -28,7 +31,7 @@ router.post('/orchestrate', requireAuth, async (req, res) => {
       });
     }
 
-    const result = await orchestrate({ userId: effectiveUserId, text, cityHint, timezone });
+    const result = await orchestrate({ userId: effectiveUserId, customerPhone: effectiveCustomerPhone, text, cityHint, timezone });
     res.json(result);
   } catch (err) {
     console.error('[orchestrate] Error:', err);
@@ -44,8 +47,9 @@ router.post('/orchestrate', requireAuth, async (req, res) => {
  * Starts orchestration in the background so clients can track real progress.
  */
 router.post('/orchestrate/jobs', requireAuth, (req, res) => {
-  const { text, cityHint, timezone } = req.body;
+  const { text, cityHint, timezone, customerPhone } = req.body;
   const effectiveUserId = req.userId || 'demo-user-001';
+  const effectiveCustomerPhone = req.userPhone || customerPhone || null;
 
   if (!text || text.trim().length === 0) {
     return res.status(400).json({
@@ -54,7 +58,7 @@ router.post('/orchestrate/jobs', requireAuth, (req, res) => {
     });
   }
 
-  const job = jobs.createJob({ userId: effectiveUserId, text, cityHint, timezone });
+  const job = jobs.createJob({ userId: effectiveUserId, customerPhone: effectiveCustomerPhone, text, cityHint, timezone });
   res.status(202).json(jobs.serializeJob(job));
 
   setImmediate(async () => {
@@ -72,7 +76,7 @@ router.post('/orchestrate/jobs', requireAuth, (req, res) => {
 
     try {
       const result = await orchestrate(
-        { userId: effectiveUserId, text, cityHint, timezone },
+        { userId: effectiveUserId, customerPhone: effectiveCustomerPhone, text, cityHint, timezone },
         {
           onProgress: (event) => {
             jobs.appendEvent(job.jobId, event);
@@ -147,48 +151,69 @@ router.post('/webhooks/twilio/whatsapp', async (req, res) => {
       text: inbound.body,
       buttonPayload: inbound.buttonPayload,
     });
-    inbound.bookingId = parsed.bookingId || null;
+    const fallbackBooking = parsed.bookingId
+      ? null
+      : conversationService.matchLatestActiveBookingByProvider(inbound.from);
+    const bookingId = parsed.bookingId || fallbackBooking?.bookingId || null;
+
+    inbound.bookingId = bookingId;
     inbound.parsedIntent = parsed.intent;
     inbound.parser = parsed.parser;
 
-    if (!parsed.bookingId) {
+    if (!bookingId) {
       inbound.status = 'unmatched_missing_booking_code';
       store.insert('inboundMessages', inbound);
       return res.send('<Response></Response>');
     }
 
-    const updatedBooking = bookingAgent.applyProviderResponse({
-      bookingId: parsed.bookingId,
-      intent: parsed.intent,
-      message: inbound.body,
-      from: inbound.from,
-      messageSid: inbound.inboundMessageId,
-      parser: parsed.parser,
-      proposedSlot: parsed.proposedSlot,
-    });
-
-    if (!updatedBooking) {
+    const booking = bookingAgent.getBooking(bookingId);
+    if (!booking) {
       inbound.status = 'unmatched_booking_not_found';
       store.insert('inboundMessages', inbound);
       return res.send('<Response></Response>');
     }
 
-    inbound.status = `matched_${parsed.intent}`;
+    const isInitialProviderDecision = booking.status === 'pending_provider_response'
+      && ['accepted', 'rejected'].includes(parsed.intent);
+
+    let updatedBooking = booking;
+    if (isInitialProviderDecision) {
+      updatedBooking = bookingAgent.applyProviderResponse({
+        bookingId,
+        intent: parsed.intent,
+        message: inbound.body,
+        from: inbound.from,
+        messageSid: inbound.inboundMessageId,
+        parser: parsed.parser,
+        proposedSlot: parsed.proposedSlot,
+      });
+    }
+
+    inbound.status = `matched_${parsed.intent}${fallbackBooking ? '_latest_active' : ''}`;
     store.insert('inboundMessages', inbound);
 
-    if (parsed.intent === 'accepted') {
+    await conversationService.handleProviderInbound({
+      booking: updatedBooking || booking,
+      inbound,
+      parsed,
+      classify: !isInitialProviderDecision,
+    });
+
+    if (isInitialProviderDecision && parsed.intent === 'accepted') {
       const followUp = await followUpAgent.run({
         bookingId: updatedBooking.bookingId,
         providerName: updatedBooking.providerName,
         slot: updatedBooking.slot,
+        slotLabel: updatedBooking.slotLabel,
         formattedLocation: updatedBooking.location,
+        serviceType: updatedBooking.serviceType,
       });
       const bookingWithReminder = bookingAgent.updateBooking(updatedBooking.bookingId, {
         reminderTimeLabel: followUp.reminderTimeLabel || null,
         reminderMessage: followUp.reminderMessage || null,
       }, 'Reminder scheduled after provider acceptance.');
       emitBookingUpdated(bookingWithReminder || updatedBooking);
-    } else {
+    } else if (isInitialProviderDecision) {
       emitBookingUpdated(updatedBooking);
     }
 
@@ -216,6 +241,24 @@ router.post('/webhooks/twilio/status', (req, res) => {
   res.send('<Response></Response>');
 });
 
+router.post('/push-tokens', requireAuth, (req, res) => {
+  try {
+    const { token, platform } = req.body;
+    const record = registerPushToken({
+      userId: req.userId || req.body.userId || 'demo-user-001',
+      token,
+      platform,
+    });
+    res.status(201).json({ pushToken: record });
+  } catch (err) {
+    const status = err.code === 'missing_push_token' ? 400 : 500;
+    res.status(status).json({
+      error: err.code || 'push_token_registration_failed',
+      message: err.message,
+    });
+  }
+});
+
 /**
  * GET /api/bookings
  * List all bookings
@@ -234,6 +277,55 @@ router.get('/bookings/:id', (req, res) => {
     return res.status(404).json({ error: 'not_found', message: 'Booking not found.' });
   }
   res.json(booking);
+});
+
+router.get('/bookings/:id/conversation', (req, res) => {
+  const result = conversationService.getConversationForBooking(req.params.id);
+  if (!result) {
+    return res.status(404).json({ error: 'not_found', message: 'Booking not found.' });
+  }
+  res.json(result);
+});
+
+router.post('/bookings/:id/messages', async (req, res) => {
+  try {
+    const message = await conversationService.sendUserMessage(
+      req.params.id,
+      req.body.body || req.body.message,
+      req.userId || req.body.userId || 'demo-user-001'
+    );
+    res.status(201).json({ message });
+  } catch (err) {
+    const status = err.code === 'not_found' ? 404 : err.code === 'missing_message' ? 400 : 500;
+    res.status(status).json({
+      error: err.code || 'message_send_failed',
+      message: err.message,
+    });
+  }
+});
+
+router.post('/bookings/:id/actions/:actionId/approve', async (req, res) => {
+  try {
+    const result = await conversationService.approveAction(req.params.id, req.params.actionId);
+    if (!result) {
+      return res.status(404).json({ error: 'not_found', message: 'Pending action not found.' });
+    }
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: 'action_approval_failed', message: err.message });
+  }
+});
+
+router.post('/bookings/:id/actions/:actionId/reject', async (req, res) => {
+  try {
+    const result = await conversationService.rejectAction(req.params.id, req.params.actionId);
+    if (!result) {
+      return res.status(404).json({ error: 'not_found', message: 'Pending action not found.' });
+    }
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: 'action_rejection_failed', message: err.message });
+  }
 });
 
 /**

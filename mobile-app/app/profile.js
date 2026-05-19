@@ -207,21 +207,6 @@ export default function ProfileScreen() {
 
         <View style={{ gap: 9 }}>
           <TouchableOpacity
-            onPress={() => router.push('/bookings')}
-            style={{ backgroundColor: M.accent, borderRadius: 13, paddingVertical: 13, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}
-          >
-            <Ic name="list" size={16} color="#fff" weight={2.4} />
-            <Text style={{ color: '#fff', fontWeight: '800' }}>View bookings</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={() => router.push('/')}
-            style={{ backgroundColor: M.surface, borderRadius: 13, paddingVertical: 13, alignItems: 'center', borderWidth: 1, borderColor: M.border }}
-          >
-            <Text style={{ color: M.text, fontWeight: '800' }}>Book another service</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
             onPress={handleTestNotification}
             style={{ backgroundColor: M.accentSoft, borderRadius: 13, paddingVertical: 13, alignItems: 'center', borderWidth: 1, borderColor: M.accent }}
           >

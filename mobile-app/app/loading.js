@@ -36,7 +36,7 @@ const AGENT_DESCRIPTION = {
 
 const KNOWN_ICONS = new Set([
   'sparkle','pin','msg','list','star','cal','clock','flow','cpu',
-  'shield','zap','wrench','bookic','user','globe','bell','check','snow',
+  'shield','zap','wrench','bookic','user','globe','bell','check','snow','edit',
 ]);
 
 function safeIcon(name) {
@@ -49,6 +49,64 @@ function formatElapsed(ms) {
   if (s < 60) return `${s.toFixed(1)}s`;
   const m = Math.floor(s / 60);
   return `${m}m ${Math.floor(s % 60)}s`;
+}
+
+// Pull a couple of human-friendly "extracted value" chips out of an agent event.
+// Looks at common fields the backend exposes (output, summary, source).
+function extractChips(event) {
+  const chips = [];
+  const out = event?.output || event?.outputs || event?.data;
+  if (out && typeof out === 'object') {
+    const candidates = [
+      ['Service',    out.serviceType || out.normalizedServiceType || out.category],
+      ['Location',   out.formattedLocation || out.locationText || out.city],
+      ['When',       out.dateText || out.resolvedDate || out.timeText || out.slotLabel],
+      ['Lang',       out.detectedLanguage],
+      ['Providers',  Array.isArray(out.providers) ? `${out.providers.length} nearby` : null],
+      ['Top',        out.rankedProviders?.[0]?.name],
+      ['Score',      out.rankedProviders?.[0]?.score != null
+        ? `${Math.round(Number(out.rankedProviders[0].score) * 100)}%`
+        : null],
+      ['Booking',    out.bookingId],
+    ];
+    for (const [label, value] of candidates) {
+      if (value != null && value !== '') chips.push({ label, value: String(value) });
+      if (chips.length >= 3) break;
+    }
+  }
+  if (!chips.length && event?.source) chips.push({ label: 'Source', value: String(event.source) });
+  return chips;
+}
+
+function ThinkingDots({ color }) {
+  const a1 = useRef(new Animated.Value(0)).current;
+  const a2 = useRef(new Animated.Value(0)).current;
+  const a3 = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const seq = (val, delay) => Animated.loop(
+      Animated.sequence([
+        Animated.delay(delay),
+        Animated.timing(val, { toValue: 1, duration: 350, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+        Animated.timing(val, { toValue: 0, duration: 350, easing: Easing.in(Easing.quad), useNativeDriver: true }),
+        Animated.delay(550 - delay),
+      ]),
+    );
+    seq(a1, 0).start();
+    seq(a2, 140).start();
+    seq(a3, 280).start();
+  }, []);
+  const dot = (val) => ({
+    width: 4, height: 4, borderRadius: 2, backgroundColor: color,
+    opacity: val.interpolate({ inputRange: [0, 1], outputRange: [0.25, 1] }),
+    transform: [{ translateY: val.interpolate({ inputRange: [0, 1], outputRange: [0, -2] }) }],
+  });
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, marginLeft: 4 }}>
+      <Animated.View style={dot(a1)} />
+      <Animated.View style={dot(a2)} />
+      <Animated.View style={dot(a3)} />
+    </View>
+  );
 }
 
 export default function LoadingScreen() {
@@ -264,15 +322,23 @@ export default function LoadingScreen() {
       const key = `${event.agent}::${event.tool || ''}::${i}`;
       const stamp = stepStartRef.current[`${event.agent}::${event.tool || ''}`];
       const durationMs = stamp ? now - stamp : null;
+      const detailText = typeof event.summary === 'string'
+        ? event.summary
+        : typeof event.output === 'string'
+        ? event.output
+        : event.source || '';
       return {
         key,
         agent: event.agent,
         description: AGENT_DESCRIPTION[event.agent] || event.tool || event.source || '',
-        detail: event.summary || event.output || event.source || '',
+        detail: detailText,
+        chips: extractChips(event),
         status: event.status,
         icon: safeIcon(event.icon),
         color: event.color || M.agent,
         durationMs,
+        index: i,
+        isLast: i === traceSteps.length - 1,
       };
     });
   }, [traceSteps, hasTrace, status, elapsed]);
@@ -288,18 +354,18 @@ export default function LoadingScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: M.bg }}>
-      <ScrollView
-        ref={scrollRef}
-        contentContainerStyle={{
-          paddingTop: insets.top + 28,
-          paddingBottom: insets.bottom + 32,
-          paddingHorizontal: 18,
-          alignItems: 'stretch',
-        }}
-        showsVerticalScrollIndicator={false}
-      >
+      {/* Sticky header: orb + title + progress (stays put while list scrolls) */}
+      <View style={{
+        paddingTop: insets.top + 28,
+        paddingHorizontal: 18,
+        paddingBottom: 14,
+        backgroundColor: M.bg,
+        borderBottomWidth: 1,
+        borderBottomColor: M.divider,
+        zIndex: 2,
+      }}>
         {/* Orb */}
-        <View style={{ alignItems: 'center', marginBottom: 22 }}>
+        <View style={{ alignItems: 'center', marginBottom: 18 }}>
           <View style={{ position: 'relative', width: 112, height: 112, alignItems: 'center', justifyContent: 'center' }}>
             {/* Outer pulse halo (only while running) */}
             {status === 'running' && (
@@ -348,15 +414,18 @@ export default function LoadingScreen() {
         }}>
           {titleText}
         </Text>
-        <Text style={{
-          fontSize: 13, color: M.textMute, textAlign: 'center', marginBottom: 18,
-          paddingHorizontal: 16,
-        }} numberOfLines={2}>
-          {subtitleText}
-        </Text>
+        <View style={{
+          flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+          marginBottom: 18, paddingHorizontal: 16,
+        }}>
+          <Text style={{ fontSize: 13, color: M.textMute, textAlign: 'center' }} numberOfLines={2}>
+            {subtitleText}
+          </Text>
+          {status === 'running' && <ThinkingDots color={M.accent} />}
+        </View>
 
         {/* Progress bar */}
-        <View style={{ alignItems: 'center', marginBottom: 22 }}>
+        <View style={{ alignItems: 'center' }}>
           <View style={{
             width: '100%', maxWidth: 320, height: 6,
             backgroundColor: M.divider, borderRadius: 3, overflow: 'hidden',
@@ -376,9 +445,20 @@ export default function LoadingScreen() {
             </Text>
           </View>
         </View>
+      </View>
 
+      {/* Scrollable step list */}
+      <ScrollView
+        ref={scrollRef}
+        contentContainerStyle={{
+          paddingTop: 18,
+          paddingBottom: insets.bottom + 32,
+          paddingHorizontal: 18,
+        }}
+        showsVerticalScrollIndicator={false}
+      >
         {/* Step cards */}
-        <View style={{ gap: 8 }}>
+        <View style={{ gap: 0 }}>
           {stepItems.map((item) => (
             <StepCard key={item.key} item={item} pulseOpacity={pulseOpacity} />
           ))}
@@ -446,51 +526,74 @@ function StepCard({ item, pulseOpacity }) {
   const meta = STATUS_META[item.status] || STATUS_META.running;
   const isRunning = item.status === 'running';
   const isFailed  = item.status === 'failed';
-  const tint = isFailed ? M.error : isRunning ? item.color : M.borderHi;
+  const isDone    = !isRunning && !isFailed;
+
+  const lineColor = isDone || isFailed ? item.color : M.divider;
+  const lineOpacity = isDone || isFailed ? 0.6 : 1;
 
   return (
-    <View style={{
-      flexDirection: 'row', alignItems: 'flex-start', gap: 12,
-      paddingHorizontal: 12, paddingVertical: 11, borderRadius: 14,
-      backgroundColor: isRunning ? M.surface : isFailed ? '#FEF2F2' : M.surfaceLow,
-      borderWidth: 1,
-      borderColor: isRunning ? item.color : isFailed ? '#FECACA' : M.divider,
-      shadowColor: isRunning ? item.color : 'transparent',
-      shadowOpacity: isRunning ? 0.12 : 0,
-      shadowRadius: 10,
-      shadowOffset: { width: 0, height: 4 },
-    }}>
-      {/* Icon disc */}
-      <View style={{ width: 34, height: 34, position: 'relative' }}>
-        {isRunning && (
-          <Animated.View
-            pointerEvents="none"
-            style={{
-              position: 'absolute', top: 0, left: 0,
-              width: 34, height: 34, borderRadius: 17,
-              backgroundColor: item.color,
-              opacity: pulseOpacity,
-            }}
-          />
-        )}
-        <View style={{
-          width: 34, height: 34, borderRadius: 17,
-          backgroundColor: isFailed ? '#FEE2E2' : isRunning ? item.color : M.surface,
-          borderWidth: isRunning ? 0 : 1,
-          borderColor: M.divider,
-          alignItems: 'center', justifyContent: 'center',
-        }}>
-          <Ic
-            name={item.icon}
-            size={16}
-            color={isRunning ? '#fff' : isFailed ? M.error : item.color}
-            weight={2}
-          />
+    <View style={{ flexDirection: 'row', alignItems: 'stretch', gap: 12 }}>
+      {/* Timeline rail column — single continuous line with the icon disc on top */}
+      <View style={{ width: 34, alignItems: 'center' }}>
+        {/* Continuous vertical line spanning the full row height */}
+        <View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            top: item.index === 0 ? 22 : 0,
+            bottom: item.isLast ? '50%' : 0,
+            width: 2,
+            backgroundColor: lineColor,
+            opacity: lineOpacity,
+          }}
+        />
+
+        {/* Spacer to push the icon disc down to its anchor point */}
+        <View style={{ height: 10 }} />
+
+        {/* Icon disc */}
+        <View style={{ width: 34, height: 34, position: 'relative' }}>
+          {isRunning && (
+            <Animated.View
+              pointerEvents="none"
+              style={{
+                position: 'absolute', top: 0, left: 0,
+                width: 34, height: 34, borderRadius: 17,
+                backgroundColor: item.color,
+                opacity: pulseOpacity,
+              }}
+            />
+          )}
+          <View style={{
+            width: 34, height: 34, borderRadius: 17,
+            backgroundColor: isFailed ? '#FEE2E2' : isRunning ? item.color : isDone ? item.color : M.surface,
+            borderWidth: isRunning || isDone ? 0 : 1.5,
+            borderColor: isRunning || isDone ? 'transparent' : lineColor,
+            alignItems: 'center', justifyContent: 'center',
+          }}>
+            <Ic
+              name={isDone ? 'check' : item.icon}
+              size={isDone ? 14 : 16}
+              color={isRunning || isDone ? '#fff' : isFailed ? M.error : item.color}
+              weight={isDone ? 3 : 2}
+            />
+          </View>
         </View>
       </View>
 
-      {/* Body */}
-      <View style={{ flex: 1, minWidth: 0 }}>
+      {/* Card body */}
+      <View style={{
+        flex: 1,
+        marginVertical: 4,
+        paddingHorizontal: 12, paddingVertical: 11, borderRadius: 14,
+        backgroundColor: isRunning ? M.surface : isFailed ? '#FEF2F2' : M.surface,
+        borderWidth: 1,
+        borderColor: isRunning ? item.color : isFailed ? '#FECACA' : M.divider,
+        shadowColor: isRunning ? item.color : 'transparent',
+        shadowOpacity: isRunning ? 0.18 : 0,
+        shadowRadius: 12,
+        shadowOffset: { width: 0, height: 4 },
+      }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2 }}>
           <Text style={{
             flex: 1, fontSize: 14, fontWeight: '700', color: M.text, letterSpacing: -0.1,
@@ -516,20 +619,44 @@ function StepCard({ item, pulseOpacity }) {
             {item.detail}
           </Text>
         )}
+
+        {/* Extracted-data chips */}
+        {!!item.chips?.length && (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 8 }}>
+            {item.chips.map((c, i) => (
+              <View
+                key={`${c.label}-${i}`}
+                style={{
+                  flexDirection: 'row', alignItems: 'center', gap: 5,
+                  backgroundColor: M.surfaceLow,
+                  paddingHorizontal: 8, paddingVertical: 3,
+                  borderRadius: 6,
+                  borderWidth: 1, borderColor: M.divider,
+                }}
+              >
+                <Text style={{
+                  fontSize: 9.5, fontWeight: '800', color: M.textDim,
+                  letterSpacing: 0.6, textTransform: 'uppercase',
+                }}>
+                  {c.label}
+                </Text>
+                <Text
+                  numberOfLines={1}
+                  style={{ fontSize: 11, fontWeight: '700', color: M.text, maxWidth: 140 }}
+                >
+                  {c.value}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
+
         {item.durationMs != null && !isRunning && (
-          <Text style={{ fontSize: 10, color: M.textDim, marginTop: 4, fontWeight: '600' }}>
+          <Text style={{ fontSize: 10, color: M.textDim, marginTop: 6, fontWeight: '600' }}>
             {formatElapsed(item.durationMs)}
           </Text>
         )}
       </View>
-
-      {/* Left accent rail when running */}
-      {isRunning && (
-        <View style={{
-          position: 'absolute', left: 0, top: 10, bottom: 10, width: 3,
-          backgroundColor: tint, borderTopRightRadius: 2, borderBottomRightRadius: 2,
-        }} />
-      )}
     </View>
   );
 }

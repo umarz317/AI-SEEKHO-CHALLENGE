@@ -7,6 +7,7 @@ import { AuthProvider, useAuth } from '../src/AuthContext';
 import { useEffect, useState, useRef } from 'react';
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
+import { registerPushToken } from '../src/api';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -94,7 +95,16 @@ export default function RootLayout() {
 
   useEffect(() => {
     registerForPushNotificationsAsync()
-      .then(token => setExpoPushToken(token ?? ''))
+      .then(async (token) => {
+        setExpoPushToken(token ?? '');
+        if (token) {
+          try {
+            await registerPushToken(token);
+          } catch (err) {
+            console.warn('Push token registration failed:', err.message);
+          }
+        }
+      })
       .catch((error) => setExpoPushToken(`${error}`));
 
     notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
@@ -127,8 +137,10 @@ export default function RootLayout() {
               <Stack.Screen name="understanding" />
               <Stack.Screen name="recommendation" />
               <Stack.Screen name="booking" />
+              <Stack.Screen name="booking-chat" />
               <Stack.Screen name="bookings" />
               <Stack.Screen name="profile" />
+              <Stack.Screen name="notifications" />
               <Stack.Screen name="trace" />
             </Stack>
           </AuthGuard>

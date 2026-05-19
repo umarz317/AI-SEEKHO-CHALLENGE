@@ -18,6 +18,14 @@ function initRealtime(httpServer) {
     socket.on('booking:leave', (bookingId) => {
       if (bookingId) socket.leave(`booking:${bookingId}`);
     });
+
+    socket.on('conversation:join', (bookingId) => {
+      if (bookingId) socket.join(`conversation:${bookingId}`);
+    });
+
+    socket.on('conversation:leave', (bookingId) => {
+      if (bookingId) socket.leave(`conversation:${bookingId}`);
+    });
   });
 
   return io;
@@ -34,7 +42,19 @@ function emitBookingUpdated(booking) {
   });
 }
 
+function emitConversationMessage(message) {
+  if (!io || !message?.bookingId) return;
+  io.to(`conversation:${message.bookingId}`).emit('conversation:message', message);
+}
+
+function emitConversationAction(action) {
+  if (!io || !action?.bookingId) return;
+  io.to(`conversation:${action.bookingId}`).emit('conversation:action', action);
+}
+
 module.exports = {
+  emitConversationAction,
+  emitConversationMessage,
   emitBookingUpdated,
   initRealtime,
 };

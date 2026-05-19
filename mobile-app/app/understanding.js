@@ -180,7 +180,7 @@ export default function UnderstandingScreen() {
                   backgroundColor: 'rgba(255,255,255,0.12)',
                 }}
               >
-                <Ic name="wrench" size={11} color="#fff" weight={2} />
+                <Ic name="edit" size={12} color="#fff" weight={2} />
                 <Text style={{ color: '#fff', fontSize: 11, fontWeight: '700' }}>Edit query</Text>
               </TouchableOpacity>
             </View>

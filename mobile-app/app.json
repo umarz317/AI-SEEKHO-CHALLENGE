@@ -11,7 +11,7 @@
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#FAFBFD"
+      "backgroundColor": "#FFFFFF"
     },
     "ios": {
       "supportsTablet": true,
@@ -36,7 +36,12 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.KariGo.app",
-      "googleServicesFile": "./google-services.json"
+      "googleServicesFile": "./google-services.json",
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyBGJ79toymjz3utdMvIIVSDa4nanlJQ_DA"
+        }
+      }
     },
     "web": {
       "bundler": "metro",
@@ -49,7 +54,24 @@
       "@react-native-firebase/app",
       "@react-native-firebase/auth",
       "expo-build-properties",
-      "expo-notifications"
+      "expo-notifications",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Allow KariGo to use your microphone to capture service requests.",
+          "speechRecognitionPermission": "Allow KariGo to recognize your speech for service requests.",
+          "androidSpeechServicePackages": [
+            "com.google.android.googlequicksearchbox"
+          ]
+        }
+      ],
+      [
+        "expo-maps",
+        {
+          "requestLocationPermission": false,
+          "locationPermission": "Allow KariGo to use your location to show nearby providers."
+        }
+      ]
     ],
     "extra": {
       "eas": {

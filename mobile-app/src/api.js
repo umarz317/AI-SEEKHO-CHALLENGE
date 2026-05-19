@@ -23,6 +23,10 @@ async function getAuthHeaders() {
   }
 }
 
+function getCurrentUserPhone() {
+  return getAuth().currentUser?.phoneNumber || null;
+}
+
 /**
  * POST /api/orchestrate — run the full 7-agent pipeline
  * @param {{ text: string, cityHint?: string }} params
@@ -37,6 +41,7 @@ export async function orchestrate({ text, cityHint = 'Islamabad' }) {
       text,
       cityHint,
       timezone: 'Asia/Karachi',
+      customerPhone: getCurrentUserPhone(),
     }),
   });
 
@@ -60,6 +65,7 @@ export async function startOrchestrationJob({ text, cityHint = 'Islamabad' }) {
       text,
       cityHint,
       timezone: 'Asia/Karachi',
+      customerPhone: getCurrentUserPhone(),
     }),
   });
 
@@ -120,6 +126,41 @@ export async function listBookings() {
 }
 
 /**
+ * GET /api/notifications — list all notifications
+ */
+export async function listNotifications() {
+  const res = await fetch(`${BASE_URL}/api/notifications`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || `Notifications failed (${res.status})`);
+  }
+  return res.json();
+}
+
+/**
+ * POST /api/push-tokens — register this device for user reminders
+ */
+export async function registerPushToken(token) {
+  if (!token) return null;
+  const headers = { 'Content-Type': 'application/json', ...(await getAuthHeaders()) };
+  const res = await fetch(`${BASE_URL}/api/push-tokens`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      token,
+      platform: Platform.OS,
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || `Push token registration failed (${res.status})`);
+  }
+
+  return res.json();
+}
+
+/**
  * GET /api/bookings/:id
  */
 export async function getBooking(bookingId) {
@@ -140,6 +181,61 @@ export async function confirmBooking(bookingId) {
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || `Confirm failed (${res.status})`);
+  }
+  return res.json();
+}
+
+/**
+ * GET /api/bookings/:id/conversation
+ */
+export async function getConversation(bookingId) {
+  const res = await fetch(`${BASE_URL}/api/bookings/${bookingId}/conversation`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || `Conversation failed (${res.status})`);
+  }
+  return res.json();
+}
+
+/**
+ * POST /api/bookings/:id/messages
+ */
+export async function sendConversationMessage(bookingId, body) {
+  const headers = { 'Content-Type': 'application/json', ...(await getAuthHeaders()) };
+  const res = await fetch(`${BASE_URL}/api/bookings/${bookingId}/messages`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ body }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || `Message failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function approveConversationAction(bookingId, actionId) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${BASE_URL}/api/bookings/${bookingId}/actions/${actionId}/approve`, {
+    method: 'POST',
+    headers,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || `Action approval failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function rejectConversationAction(bookingId, actionId) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${BASE_URL}/api/bookings/${bookingId}/actions/${actionId}/reject`, {
+    method: 'POST',
+    headers,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || `Action rejection failed (${res.status})`);
   }
   return res.json();
 }

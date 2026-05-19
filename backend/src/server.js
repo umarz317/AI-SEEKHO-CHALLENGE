@@ -9,12 +9,14 @@ const cors = require('cors');
 const routes = require('./routes/orchestrate');
 const { createServer } = require('http');
 const { initRealtime } = require('./services/realtime');
+const { startReminderScheduler } = require('./services/reminderScheduler');
 
 const app = express();
 const httpServer = createServer(app);
 const PORT = process.env.PORT || 3001;
 
 initRealtime(httpServer);
+startReminderScheduler();
 
 // Middleware
 app.use(cors());
@@ -45,6 +47,7 @@ app.get('/', (req, res) => {
       'GET  /api/traces/:id',
       'GET  /api/reminders',
       'GET  /api/notifications',
+      'POST /api/push-tokens',
       'POST /api/webhooks/twilio/whatsapp',
       'POST /api/webhooks/twilio/status',
       'GET  /api/health',

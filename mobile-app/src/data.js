@@ -52,12 +52,12 @@ export const MDATA = {
 };
 
 export const CATEGORIES = [
-  { id: 'ac',     label: 'AC',          icon: 'snow',    bg: '#EFF6FF', color: '#2563EB' },
-  { id: 'plumb',  label: 'Plumber',     icon: 'wrench',  bg: '#FEF3C7', color: '#B45309' },
-  { id: 'elec',   label: 'Electrician', icon: 'zap',     bg: '#FEF9C3', color: '#A16207' },
-  { id: 'clean',  label: 'Cleaner',     icon: 'spray',   bg: '#D1FAE5', color: '#047857' },
-  { id: 'beauty', label: 'Beauty',      icon: 'scissor', bg: '#FCE7F3', color: '#BE185D' },
-  { id: 'tutor',  label: 'Tutor',       icon: 'bookic',  bg: '#E0E7FF', color: '#4338CA' },
+  { id: 'ac',     label: 'AC',          prompt: 'Need an AC technician',  icon: 'snow',    bg: '#EFF6FF', color: '#2563EB' },
+  { id: 'plumb',  label: 'Plumber',     prompt: 'Need a plumber',         icon: 'wrench',  bg: '#FEF3C7', color: '#B45309' },
+  { id: 'elec',   label: 'Electrician', prompt: 'Need an electrician',    icon: 'zap',     bg: '#FEF9C3', color: '#A16207' },
+  { id: 'clean',  label: 'Cleaner',     prompt: 'Need a home cleaner',    icon: 'spray',   bg: '#D1FAE5', color: '#047857' },
+  { id: 'beauty', label: 'Beauty',      prompt: 'Need a beautician',      icon: 'scissor', bg: '#FCE7F3', color: '#BE185D' },
+  { id: 'tutor',  label: 'Tutor',       prompt: 'Need a tutor',           icon: 'bookic',  bg: '#E0E7FF', color: '#4338CA' },
 ];
 
 export const EXAMPLES = [

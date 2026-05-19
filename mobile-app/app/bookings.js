@@ -38,13 +38,27 @@ function statusColor(status) {
   if (status === 'confirmed') return { bg: M.successBg, fg: M.success };
   if (status === 'rejected' || status === 'provider_message_failed' || status === 'failed') return { bg: '#FEF2F2', fg: M.error };
   if (status === 'pending_provider_response') return { bg: M.amberBg, fg: M.amber };
+  if (status === 'pending_user_confirmation') return { bg: '#FFF7ED', fg: '#EA580C' };
   return { bg: M.surfaceLow, fg: M.textMute };
 }
 
 function statusLabel(status) {
   if (status === 'pending_provider_response') return 'waiting';
   if (status === 'provider_message_failed') return 'message failed';
+  if (status === 'pending_user_confirmation') return 'action required';
   return status || 'saved';
+}
+
+function lifecycleLabel(booking) {
+  if (booking.providerResponseMessage) return booking.providerResponseMessage;
+  const status = booking.lifecycleStatus;
+  if (status === 'created') return 'Draft created — awaiting confirmation';
+  if (status === 'message_sent_to_provider') return 'Request sent to provider';
+  if (status === 'provider_accepted') return 'Confirmed by provider';
+  if (status === 'provider_rejected') return 'Declined by provider';
+  if (status === 'provider_message_failed') return 'Delivery failed';
+  if (status === 'provider_reply_needs_review') return 'Reply needs manual review';
+  return 'Waiting for provider reply';
 }
 
 export default function BookingsScreen() {
@@ -146,43 +160,64 @@ export default function BookingsScreen() {
             {bookings.map((booking) => {
               const colors = statusColor(booking.status);
               return (
-                <MCard key={booking.bookingId} style={{ overflow: 'hidden' }}>
-                  <View style={{ padding: 14, flexDirection: 'row', gap: 12, alignItems: 'flex-start' }}>
-                    <Avatar initials={initialsFor(booking.providerName)} gradient={['#10B981', '#047857']} size={44} />
-                    <View style={{ flex: 1 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                        <Text style={{ flex: 1, fontSize: 15, fontWeight: '800', color: M.text }}>{booking.providerName || 'Provider'}</Text>
-                        <View style={{ backgroundColor: colors.bg, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }}>
-                          <Text style={{ fontSize: 10, fontWeight: '800', color: colors.fg, textTransform: 'uppercase' }}>{statusLabel(booking.status)}</Text>
+                <TouchableOpacity
+                  key={booking.bookingId}
+                  activeOpacity={0.85}
+                  onPress={() => {
+                    router.push({
+                      pathname: '/booking',
+                      params: {
+                        apiData: JSON.stringify({
+                          booking,
+                          recommendation: {
+                            name: booking.providerName,
+                            initials: initialsFor(booking.providerName),
+                            rating: 4.8,
+                            distance: '2.1 km',
+                            verified: true,
+                          }
+                        }),
+                      },
+                    });
+                  }}
+                >
+                  <MCard style={{ overflow: 'hidden' }}>
+                    <View style={{ padding: 14, flexDirection: 'row', gap: 12, alignItems: 'flex-start' }}>
+                      <Avatar initials={initialsFor(booking.providerName)} gradient={['#10B981', '#047857']} size={44} />
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                          <Text style={{ flex: 1, fontSize: 15, fontWeight: '800', color: M.text }}>{booking.providerName || 'Provider'}</Text>
+                          <View style={{ backgroundColor: colors.bg, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 }}>
+                            <Text style={{ fontSize: 10, fontWeight: '800', color: colors.fg, textTransform: 'uppercase' }}>{statusLabel(booking.status)}</Text>
+                          </View>
                         </View>
-                      </View>
 
-                      <View style={{ gap: 6, marginTop: 5 }}>
-                        <View style={{ flexDirection: 'row', gap: 7, alignItems: 'center' }}>
-                          <Ic name="cal" size={13} color={M.textDim} weight={2} />
-                          <Text style={{ flex: 1, fontSize: 12.5, fontWeight: '600', color: M.text }}>{booking.slotLabel || booking.slot || 'Time not set'}</Text>
-                        </View>
-                        <View style={{ flexDirection: 'row', gap: 7, alignItems: 'center' }}>
-                          <Ic name="pin" size={13} color={M.textDim} weight={2} />
-                          <Text style={{ flex: 1, fontSize: 12, color: M.textMute }}>{booking.location || 'Location not set'}</Text>
-                        </View>
-                        <View style={{ flexDirection: 'row', gap: 7, alignItems: 'center' }}>
-                          <Ic name="flow" size={13} color={M.textDim} weight={2} />
-                          <Text style={{ flex: 1, fontSize: 11.5, color: M.textDim }}>{booking.bookingId}</Text>
-                        </View>
-                        <View style={{ flexDirection: 'row', gap: 7, alignItems: 'center' }}>
-                          <Ic name="msg" size={13} color={M.textDim} weight={2} />
-                          <Text style={{ flex: 1, fontSize: 11.5, color: M.textDim }}>{booking.providerResponseMessage || booking.lifecycleStatus || 'Waiting for provider reply'}</Text>
+                        <View style={{ gap: 6, marginTop: 5 }}>
+                          <View style={{ flexDirection: 'row', gap: 7, alignItems: 'center' }}>
+                            <Ic name="cal" size={13} color={M.textDim} weight={2} />
+                            <Text style={{ flex: 1, fontSize: 12.5, fontWeight: '600', color: M.text }}>{booking.slotLabel || booking.slot || 'Time not set'}</Text>
+                          </View>
+                          <View style={{ flexDirection: 'row', gap: 7, alignItems: 'center' }}>
+                            <Ic name="pin" size={13} color={M.textDim} weight={2} />
+                            <Text style={{ flex: 1, fontSize: 12, color: M.textMute }}>{booking.location || 'Location not set'}</Text>
+                          </View>
+                          <View style={{ flexDirection: 'row', gap: 7, alignItems: 'center' }}>
+                            <Ic name="flow" size={13} color={M.textDim} weight={2} />
+                            <Text style={{ flex: 1, fontSize: 11.5, color: M.textDim }}>{booking.bookingId}</Text>
+                          </View>
+                          <View style={{ flexDirection: 'row', gap: 7, alignItems: 'center' }}>
+                            <Ic name="msg" size={13} color={M.textDim} weight={2} />
+                            <Text style={{ flex: 1, fontSize: 11.5, color: M.textDim }}>{lifecycleLabel(booking)}</Text>
+                          </View>
                         </View>
                       </View>
                     </View>
-                  </View>
 
-                  <View style={{ borderTopWidth: 1, borderTopColor: M.divider, paddingHorizontal: 14, paddingVertical: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Text style={{ fontSize: 11.5, color: M.textDim }}>{formatCreatedAt(booking.createdAt) || 'Recently created'}</Text>
-                    <Text style={{ fontSize: 12, fontWeight: '700', color: M.accentDeep }}>{booking.fee || 'Free consultation'}</Text>
-                  </View>
-                </MCard>
+                    <View style={{ borderTopWidth: 1, borderTopColor: M.divider, paddingHorizontal: 14, paddingVertical: 10 }}>
+                      <Text style={{ fontSize: 11.5, color: M.textDim }}>{formatCreatedAt(booking.createdAt) || 'Recently created'}</Text>
+                    </View>
+                  </MCard>
+                </TouchableOpacity>
               );
             })}
           </View>

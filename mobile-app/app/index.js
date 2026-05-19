@@ -1,11 +1,14 @@
 // app/index.js — Screen 1: Home (integrated with backend)
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
-  ScrollView, Platform, ActivityIndicator,
+  ScrollView, ActivityIndicator,
 } from 'react-native';
+import {
+  ExpoSpeechRecognitionModule,
+  useSpeechRecognitionEvent,
+} from 'expo-speech-recognition';
 import { useRouter } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import TopBar from '../src/components/TopBar';
 import BottomNav from '../src/components/BottomNav';
 import MCard from '../src/components/MCard';
@@ -15,28 +18,149 @@ import { M } from '../src/theme';
 import { CATEGORIES, EXAMPLES } from '../src/data';
 import { checkHealth } from '../src/api';
 
+const SPEECH_LANGUAGES = [
+  { key: 'english', label: 'English', locale: 'en-US' },
+  { key: 'urdu', label: 'Urdu', locale: 'ur-PK' },
+  { key: 'roman_urdu', label: 'Roman Urdu', locale: 'en-US' },
+];
+
+function appendSpeechText(base, transcript) {
+  const cleanBase = String(base || '').trim();
+  const cleanTranscript = String(transcript || '').trim();
+  if (!cleanTranscript) return cleanBase;
+  return cleanBase ? `${cleanBase} ${cleanTranscript}` : cleanTranscript;
+}
+
 export default function HomeScreen() {
   const router = useRouter();
   const [query, setQuery]       = useState('');
   const [city, setCity]         = useState('Islamabad');
   const [focus, setFocus]       = useState(false);
   const [cityOpen, setCityOpen] = useState(false);
-  const [examplesOpen, setExamplesOpen] = useState(false);
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState(null);
   const [online, setOnline]     = useState(null);
+  const [speechLanguage, setSpeechLanguage] = useState(SPEECH_LANGUAGES[0]);
+  const [recognizing, setRecognizing] = useState(false);
+  const [stoppingSpeech, setStoppingSpeech] = useState(false);
+  const [interimSpeech, setInterimSpeech] = useState('');
+  const speechBaseRef = useRef('');
 
-  const isUrdu      = /[\u0600-\u06FF]/.test(query);
-  const isRomanUrdu = !isUrdu && /mujhe|chahiye|subah|mein|kal|aaj/i.test(query);
-  const langLabel   = isUrdu ? 'Urdu' : isRomanUrdu ? 'Roman Urdu' : query.length > 3 ? 'English' : null;
+  const displayedQuery = interimSpeech ? appendSpeechText(speechBaseRef.current, interimSpeech) : query;
+  const isUrdu      = /[\u0600-\u06FF]/.test(displayedQuery) || speechLanguage.key === 'urdu';
+  const isRomanUrdu = !isUrdu && /mujhe|chahiye|subah|mein|kal|aaj/i.test(displayedQuery);
+  const langLabel   = isUrdu ? 'Urdu' : isRomanUrdu ? 'Roman Urdu' : displayedQuery.length > 3 ? 'English' : null;
+  const speechStatus = stoppingSpeech
+    ? 'Stopping...'
+    : recognizing
+      ? `Listening in ${speechLanguage.label}...`
+      : null;
 
   // Check backend health on mount
   useEffect(() => {
     checkHealth().then(ok => setOnline(ok));
   }, []);
 
+  useEffect(() => {
+    return () => {
+      try {
+        ExpoSpeechRecognitionModule.abort();
+      } catch {}
+    };
+  }, []);
+
+  useSpeechRecognitionEvent('start', () => {
+    setRecognizing(true);
+    setStoppingSpeech(false);
+    setError(null);
+  });
+
+  useSpeechRecognitionEvent('end', () => {
+    setRecognizing(false);
+    setStoppingSpeech(false);
+    setInterimSpeech('');
+  });
+
+  useSpeechRecognitionEvent('result', (event) => {
+    const transcript = event.results?.[0]?.transcript || '';
+    if (!transcript) return;
+    if (event.isFinal) {
+      setQuery(appendSpeechText(speechBaseRef.current, transcript));
+      setInterimSpeech('');
+      return;
+    }
+    setInterimSpeech(transcript);
+  });
+
+  useSpeechRecognitionEvent('error', (event) => {
+    setRecognizing(false);
+    setStoppingSpeech(false);
+    setInterimSpeech('');
+    const code = event.error ? ` (${event.error})` : '';
+    setError(event.message || `Speech recognition failed${code}.`);
+  });
+
+  const handleSpeechPress = async () => {
+    if (recognizing) {
+      setStoppingSpeech(true);
+      try {
+        await ExpoSpeechRecognitionModule.stop();
+      } catch (err) {
+        setStoppingSpeech(false);
+        setRecognizing(false);
+        setError(err.message || 'Could not stop listening.');
+      }
+      return;
+    }
+
+    setError(null);
+    setInterimSpeech('');
+    speechBaseRef.current = query.trim();
+
+    try {
+      if (
+        typeof ExpoSpeechRecognitionModule.isRecognitionAvailable === 'function' &&
+        !ExpoSpeechRecognitionModule.isRecognitionAvailable()
+      ) {
+        setError('Speech recognition is not available on this device.');
+        return;
+      }
+
+      const permission = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      if (!permission.granted) {
+        setError('Microphone and speech recognition permission are required to dictate a service request.');
+        return;
+      }
+
+      ExpoSpeechRecognitionModule.start({
+        lang: speechLanguage.locale,
+        interimResults: true,
+        continuous: false,
+        addsPunctuation: true,
+        contextualStrings: [
+          'plumber',
+          'electrician',
+          'AC technician',
+          'cleaner',
+          'carpenter',
+          'beautician',
+          'tutor',
+          'Islamabad',
+          'Rawalpindi',
+          'F-10',
+          'G-13',
+        ],
+      });
+    } catch (err) {
+      setRecognizing(false);
+      setStoppingSpeech(false);
+      setError(err.message || 'Speech recognition could not start. Rebuild the dev client after installing the native speech module.');
+    }
+  };
+
   const handleSubmit = async () => {
-    if (!query.trim()) return;
+    const requestText = displayedQuery.trim();
+    if (!requestText) return;
     setLoading(true);
     setError(null);
 
@@ -45,7 +169,7 @@ export default function HomeScreen() {
         pathname: '/loading',
         params: {
           dest: 'understanding',
-          query: query.trim(),
+          query: requestText,
           city,
         },
       });
@@ -64,11 +188,14 @@ export default function HomeScreen() {
           backgroundColor: online ? M.success : M.error,
         }} />
       )}
-      <TouchableOpacity style={{
-        width: 40, height: 40, borderRadius: 20,
-        alignItems: 'center', justifyContent: 'center',
-        marginRight: 4,
-      }}>
+      <TouchableOpacity
+        onPress={() => router.push('/notifications')}
+        style={{
+          width: 40, height: 40, borderRadius: 20,
+          alignItems: 'center', justifyContent: 'center',
+          marginRight: 4,
+        }}
+      >
         <Ic name="bell" size={20} color={M.text} />
         <View style={{
           position: 'absolute', top: 9, right: 11,
@@ -158,8 +285,12 @@ export default function HomeScreen() {
               </View>
 
               <TextInput
-                value={query}
-                onChangeText={setQuery}
+                value={displayedQuery}
+                onChangeText={(text) => {
+                  setQuery(text);
+                  setInterimSpeech('');
+                  speechBaseRef.current = text.trim();
+                }}
                 onFocus={() => setFocus(true)}
                 onBlur={() => setFocus(false)}
                 placeholder="e.g. Mujhe kal subah G-13 mein AC technician chahiye"
@@ -174,25 +305,86 @@ export default function HomeScreen() {
                 }}
               />
 
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                {SPEECH_LANGUAGES.map((lang) => {
+                  const active = speechLanguage.key === lang.key;
+                  return (
+                    <TouchableOpacity
+                      key={lang.key}
+                      onPress={() => {
+                        if (!recognizing) setSpeechLanguage(lang);
+                      }}
+                      disabled={recognizing}
+                      style={{
+                        borderRadius: 999,
+                        paddingHorizontal: 10,
+                        paddingVertical: 5,
+                        borderWidth: 1,
+                        borderColor: active ? M.accent : M.border,
+                        backgroundColor: active ? M.accentSoft : M.surfaceLow,
+                        opacity: recognizing && !active ? 0.55 : 1,
+                      }}
+                    >
+                      <Text style={{
+                        fontSize: 11,
+                        fontWeight: '800',
+                        color: active ? M.accentDeep : M.textMute,
+                      }}>
+                        {lang.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
               {/* Footer row */}
               <View style={{
                 flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
                 borderTopWidth: 1, borderTopColor: M.divider, paddingTop: 8, marginTop: 6,
               }}>
-                <Text style={{ fontSize: 11, color: M.textDim, fontWeight: '500' }}>
-                  {query.length} chars
-                </Text>
-                {langLabel && (
-                  <View style={{
-                    flexDirection: 'row', alignItems: 'center', gap: 5,
-                    backgroundColor: M.agentBg, borderRadius: 6, paddingHorizontal: 9, paddingVertical: 3,
-                  }}>
-                    <Ic name="globe" size={11} color={M.agent} weight={2.4} />
-                    <Text style={{ fontSize: 10.5, fontWeight: '700', color: M.agent, letterSpacing: 0.6, textTransform: 'uppercase' }}>
-                      {langLabel}
-                    </Text>
-                  </View>
-                )}
+                <View style={{ flex: 1, paddingRight: 8 }}>
+                  <Text style={{ fontSize: 11, color: recognizing ? M.accentDeep : M.textDim, fontWeight: '600' }}>
+                    {speechStatus || `${displayedQuery.length} chars`}
+                  </Text>
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  {langLabel && (
+                    <View style={{
+                      flexDirection: 'row', alignItems: 'center', gap: 5,
+                      backgroundColor: M.agentBg, borderRadius: 6, paddingHorizontal: 9, paddingVertical: 3,
+                    }}>
+                      <Ic name="globe" size={11} color={M.agent} weight={2.4} />
+                      <Text style={{ fontSize: 10.5, fontWeight: '700', color: M.agent, letterSpacing: 0.6, textTransform: 'uppercase' }}>
+                        {langLabel}
+                      </Text>
+                    </View>
+                  )}
+                  <TouchableOpacity
+                    onPress={handleSpeechPress}
+                    disabled={stoppingSpeech}
+                    accessibilityRole="button"
+                    accessibilityLabel={recognizing ? 'Stop listening' : 'Start speech to text'}
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 18,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      backgroundColor: recognizing ? M.accent : M.surfaceLow,
+                      borderWidth: 1,
+                      borderColor: recognizing ? M.accent : M.border,
+                      opacity: stoppingSpeech ? 0.65 : 1,
+                    }}
+                  >
+                    <Ic
+                      name={recognizing ? 'square' : 'mic'}
+                      size={16}
+                      color={recognizing ? '#fff' : M.text}
+                      fill={recognizing}
+                      weight={2.3}
+                    />
+                  </TouchableOpacity>
+                </View>
               </View>
             </View>
           </MCard>
@@ -256,7 +448,7 @@ export default function HomeScreen() {
             {CATEGORIES.map(cat => (
               <TouchableOpacity
                 key={cat.id}
-                onPress={() => setQuery(`Need ${cat.label.toLowerCase()} `)}
+                onPress={() => setQuery(`${cat.prompt || `Need ${cat.label.toLowerCase()}`} `)}
                 style={{
                   alignItems: 'center', gap: 6,
                   backgroundColor: M.surface,
@@ -278,100 +470,47 @@ export default function HomeScreen() {
           </ScrollView>
         </View>
 
-        {/* Examples \u2014 collapsed by default, expandable */}
+        {/* Examples */}
         <View style={{ paddingHorizontal: 14, paddingTop: 20, paddingBottom: 12 }}>
-          <TouchableOpacity
-            onPress={() => setExamplesOpen((v) => !v)}
-            activeOpacity={0.7}
-            style={{
-              flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-              marginBottom: examplesOpen ? 10 : 0,
-            }}
-          >
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Ic name="sparkle" size={12} color={M.textDim} />
-              <Text style={{ fontSize: 11, fontWeight: '700', color: M.textDim, letterSpacing: 1, textTransform: 'uppercase' }}>
-                Try an example
-              </Text>
-            </View>
-            <View style={{
-              flexDirection: 'row', alignItems: 'center', gap: 4,
-              paddingHorizontal: 8, paddingVertical: 4,
-              borderRadius: 8,
-              backgroundColor: M.surface,
-              borderWidth: 1, borderColor: M.border,
-            }}>
-              <Text style={{ fontSize: 11, fontWeight: '700', color: M.textMute }}>
-                {examplesOpen ? 'Hide' : `${EXAMPLES.length}`}
-              </Text>
-              <View style={{ transform: [{ rotate: examplesOpen ? '180deg' : '0deg' }] }}>
-                <Ic name="chev" size={12} color={M.textMute} weight={2.2} />
-              </View>
-            </View>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+            <Ic name="sparkle" size={12} color={M.textDim} />
+            <Text style={{ fontSize: 11, fontWeight: '700', color: M.textDim, letterSpacing: 1, textTransform: 'uppercase' }}>
+              Try an example
+            </Text>
+          </View>
 
-          {!examplesOpen ? (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ gap: 8, paddingTop: 10, paddingBottom: 2 }}
-            >
-              {EXAMPLES.map((ex, i) => {
-                const isAr = /[\u0600-\u06FF]/.test(ex);
-                const sel = query === ex;
-                return (
-                  <TouchableOpacity
-                    key={i}
-                    onPress={() => setQuery(ex)}
-                    activeOpacity={0.8}
-                    style={{
-                      backgroundColor: sel ? M.accentSoft : M.surface,
-                      borderRadius: 999, paddingHorizontal: 14, paddingVertical: 9,
-                      borderWidth: 1,
-                      borderColor: sel ? M.accent : M.border,
-                      maxWidth: 280,
-                    }}
-                  >
-                    <Text numberOfLines={1} style={{
-                      fontSize: 12.5, color: sel ? M.accentDeep : M.text,
-                      fontWeight: sel ? '700' : '500',
-                      textAlign: isAr ? 'right' : 'left',
-                    }}>
-                      {ex}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          ) : (
-            <View style={{ gap: 6 }}>
-              {EXAMPLES.map((ex, i) => {
-                const isAr = /[\u0600-\u06FF]/.test(ex);
-                const sel = query === ex;
-                return (
-                  <TouchableOpacity
-                    key={i}
-                    onPress={() => setQuery(ex)}
-                    style={{
-                      backgroundColor: sel ? M.accentSoft : M.surface,
-                      borderRadius: 12, padding: 14,
-                      borderWidth: 1,
-                      borderColor: sel ? M.accent : M.border,
-                    }}
-                  >
-                    <Text style={{
-                      fontSize: 13, color: sel ? M.accentDeep : M.text,
-                      fontWeight: sel ? '600' : '400',
-                      textAlign: isAr ? 'right' : 'left',
-                      lineHeight: 19,
-                    }}>
-                      {ex}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          )}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ gap: 8, paddingTop: 2, paddingBottom: 2 }}
+          >
+            {EXAMPLES.map((ex, i) => {
+              const isAr = /[\u0600-\u06FF]/.test(ex);
+              const sel = query === ex;
+              return (
+                <TouchableOpacity
+                  key={i}
+                  onPress={() => setQuery(ex)}
+                  activeOpacity={0.8}
+                  style={{
+                    backgroundColor: sel ? M.accentSoft : M.surface,
+                    borderRadius: 999, paddingHorizontal: 14, paddingVertical: 9,
+                    borderWidth: 1,
+                    borderColor: sel ? M.accent : M.border,
+                    maxWidth: 280,
+                  }}
+                >
+                  <Text numberOfLines={1} style={{
+                    fontSize: 12.5, color: sel ? M.accentDeep : M.text,
+                    fontWeight: sel ? '700' : '500',
+                    textAlign: isAr ? 'right' : 'left',
+                  }}>
+                    {ex}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
         </View>
 
         {/* CTA */}

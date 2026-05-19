@@ -20,11 +20,11 @@ const COLORS = {
 
 /**
  * Run the full orchestration pipeline
- * @param {{ userId: string, text: string, cityHint: string, timezone?: string }} request
+ * @param {{ userId: string, customerPhone?: string, text: string, cityHint: string, timezone?: string }} request
  * @returns {object} full orchestration response
  */
 async function orchestrate(request, options = {}) {
-  const { userId = 'demo-user-001', text, cityHint = 'Islamabad', timezone = 'Asia/Karachi' } = request;
+  const { userId = 'demo-user-001', customerPhone = null, text, cityHint = 'Islamabad', timezone = 'Asia/Karachi' } = request;
   const { onProgress } = options;
   const traceSteps = [];
 
@@ -180,7 +180,11 @@ async function orchestrate(request, options = {}) {
     locationText: intent.locationText,
     formattedLocation: location.formattedLocation,
     userId,
+    customerPhone,
+    requestText: text,
     serviceType: intent.serviceType,
+    userLat: location.lat,
+    userLng: location.lng,
   });
   recordStep(traceSteps, onProgress, {
     agent: 'Booking',
@@ -207,6 +211,12 @@ async function orchestrate(request, options = {}) {
       location: location.adapterMode,
       provider: discovery.adapterMode,
       distance: ranking.adapterMode,
+    },
+
+    userLocation: {
+      lat: location.lat || null,
+      lng: location.lng || null,
+      formatted: location.formattedLocation || null,
     },
 
     requestUnderstanding: {
@@ -238,6 +248,8 @@ async function orchestrate(request, options = {}) {
       googleMapsUri: topProvider.googleMapsUri,
       googlePlaceId: topProvider.googlePlaceId,
       formattedAddress: topProvider.formattedAddress,
+      lat: topProvider.lat,
+      lng: topProvider.lng,
       score: topProvider.score,
       reasons: topProvider.reasons,
       reasonCodes: topProvider.reasonCodes,
@@ -256,6 +268,8 @@ async function orchestrate(request, options = {}) {
       googleMapsUri: alt.googleMapsUri,
       googlePlaceId: alt.googlePlaceId,
       formattedAddress: alt.formattedAddress,
+      lat: alt.lat,
+      lng: alt.lng,
       score: alt.score,
       note: buildAltNote(alt, topProvider),
     })),
@@ -330,7 +344,6 @@ function getMissingFields(intent, location) {
   const fields = [];
   if (!intent.normalizedServiceType) fields.push('service');
   if (location.status === 'missing_location') fields.push('location');
-  if (!intent.timeWindow) fields.push('time');
   return fields;
 }
 

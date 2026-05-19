@@ -12,6 +12,9 @@ const DEFAULT_STATE = {
   notifications: [],
   inboundMessages: [],
   pushTokens: [],
+  conversations: [],
+  conversationMessages: [],
+  conversationActions: [],
   traces: [],
 };
 
@@ -75,6 +78,32 @@ function updateById(collection, idField, id, updater) {
   return updated;
 }
 
+function upsertById(collection, idField, id, recordOrUpdater) {
+  const state = readState();
+  const records = state[collection] || [];
+  let upserted = null;
+  let found = false;
+
+  state[collection] = records.map((record) => {
+    if (record[idField] !== id) return record;
+    found = true;
+    upserted = typeof recordOrUpdater === 'function'
+      ? recordOrUpdater(record)
+      : { ...record, ...recordOrUpdater };
+    return upserted;
+  });
+
+  if (!found) {
+    upserted = typeof recordOrUpdater === 'function'
+      ? recordOrUpdater(null)
+      : recordOrUpdater;
+    state[collection] = [...state[collection], upserted];
+  }
+
+  writeState(state);
+  return upserted;
+}
+
 function findById(collection, idField, id) {
   return list(collection).find((record) => record[idField] === id) || null;
 }
@@ -90,4 +119,5 @@ module.exports = {
   list,
   nextSequence,
   updateById,
+  upsertById,
 };

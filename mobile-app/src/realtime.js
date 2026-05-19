@@ -39,3 +39,25 @@ export function subscribeToBookings(onUpdate) {
   activeSocket.on('bookings:updated', onUpdate);
   return () => activeSocket.off('bookings:updated', onUpdate);
 }
+
+export function subscribeToConversation(bookingId, handlers = {}) {
+  if (!bookingId) return () => {};
+
+  const activeSocket = getRealtimeSocket();
+  const handleMessage = (message) => {
+    if (message?.bookingId === bookingId) handlers.onMessage?.(message);
+  };
+  const handleAction = (action) => {
+    if (action?.bookingId === bookingId) handlers.onAction?.(action);
+  };
+
+  activeSocket.emit('conversation:join', bookingId);
+  activeSocket.on('conversation:message', handleMessage);
+  activeSocket.on('conversation:action', handleAction);
+
+  return () => {
+    activeSocket.emit('conversation:leave', bookingId);
+    activeSocket.off('conversation:message', handleMessage);
+    activeSocket.off('conversation:action', handleAction);
+  };
+}

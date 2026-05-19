@@ -317,9 +317,26 @@ function debugGeminiResponse(payload) {
 }
 
 function buildIntentPrompt({ text, cityHint }) {
+  const now = new Date();
+  // Format current date in Asia/Karachi
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Karachi',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    weekday: 'long',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  });
+  const parts = Object.fromEntries(fmt.formatToParts(now).map((p) => [p.type, p.value]));
+  const todayIso = `${parts.year}-${parts.month}-${parts.day}`; // YYYY-MM-DD
+  const tomorrow = new Date(`${todayIso}T00:00:00+05:00`);
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+  const tomorrowIso = tomorrow.toISOString().slice(0, 10);
+
   return [
     'Extract the service booking request details from the user text.',
-    'Dates should be relative to Asia/Karachi. Return dateText plus resolvedDate as YYYY-MM-DD when a date is present.',
+    `Current date/time in Asia/Karachi: ${parts.weekday}, ${todayIso} ${parts.hour}:${parts.minute} PKT.`,
+    `When the user says "today", resolvedDate must be ${todayIso}. When they say "tomorrow", it must be ${tomorrowIso}.`,
+    'For named weekdays ("Friday", "next Monday"), compute the next occurrence relative to the current date above — do not use your training-data assumption of today.',
+    'Return dateText (e.g. Today, Tomorrow, In 3 days) plus resolvedDate as YYYY-MM-DD whenever a date is present.',
     'Also return providerSearch for Google Places: label, includeTerms, and excludeTerms.',
     'For home AC service, prefer home air conditioner/HVAC repair and exclude car/auto/garage/workshop results unless the user clearly asks for car AC.',
     'Keep normalizedServiceType limited to: ac_technician, plumber, electrician, tutor, beautician, cleaner, carpenter, unknown.',

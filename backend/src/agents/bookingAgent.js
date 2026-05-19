@@ -12,12 +12,32 @@ const { sendProviderBookingRequest } = require('../services/providerMessaging');
  *   dateFull: string,
  *   locationText: string,
  *   formattedLocation: string,
- *   userId: string
+ *   userId: string,
+ *   customerPhone?: string,
+ *   requestText?: string,
+ *   serviceType?: string
  * }} input
  * @returns {object} booking confirmation
  */
 async function run(input) {
-  const { provider, resolvedDate, dateFull, locationText, formattedLocation, userId, serviceType } = input;
+  const {
+    provider,
+    resolvedDate,
+    dateFull,
+    locationText,
+    formattedLocation,
+    userId,
+    customerPhone,
+    requestText,
+    serviceType,
+    userLat,
+    userLng,
+  } = input;
+
+  const hasPin = Number.isFinite(userLat) && Number.isFinite(userLng);
+  const customerLocationUrl = hasPin
+    ? `https://maps.google.com/?q=${userLat},${userLng}`
+    : null;
 
   const mockImpl = async () => {
     if (!provider) {
@@ -32,6 +52,7 @@ async function run(input) {
     const booking = {
       bookingId,
       userId: userId || 'demo-user-001',
+      customerPhone: customerPhone || null,
       status: 'pending_user_confirmation',
       lifecycleStatus: 'created',
       providerId: provider.providerId,
@@ -39,7 +60,11 @@ async function run(input) {
       slot: provider.availableSlot,
       slotLabel: `${dateFull} · ${provider.slotLabel}`,
       location: formattedLocation || `${locationText}, Islamabad`,
+      customerLat: hasPin ? userLat : null,
+      customerLng: hasPin ? userLng : null,
+      customerLocationUrl,
       serviceType,
+      jobDetails: requestText || null,
       fee: 'Free consultation',
       confirmationMessage: `Booking drafted for ${provider.name}. Awaiting your confirmation.`,
       providerResponseStatus: null,

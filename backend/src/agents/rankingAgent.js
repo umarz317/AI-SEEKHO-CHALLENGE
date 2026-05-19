@@ -154,6 +154,8 @@ async function scoreProviders({ providers, timeWindow, resolvedDate, distanceRes
         googleMapsUri: p.googleMapsUri || null,
         googlePlaceId: p.googlePlaceId || null,
         formattedAddress: p.formattedAddress || null,
+        lat: p.lat,
+        lng: p.lng,
         availableSlot,
         slotLabel,
         reasonCodes,
