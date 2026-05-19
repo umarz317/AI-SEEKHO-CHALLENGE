@@ -10,6 +10,8 @@ const DEFAULT_STATE = {
   bookings: [],
   reminders: [],
   notifications: [],
+  inboundMessages: [],
+  pushTokens: [],
   traces: [],
 };
 
@@ -57,6 +59,22 @@ function insert(collection, record) {
   return record;
 }
 
+function updateById(collection, idField, id, updater) {
+  const state = readState();
+  const records = state[collection] || [];
+  let updated = null;
+  state[collection] = records.map((record) => {
+    if (record[idField] !== id) return record;
+    updated = typeof updater === 'function'
+      ? updater(record)
+      : { ...record, ...updater };
+    return updated;
+  });
+  if (!updated) return null;
+  writeState(state);
+  return updated;
+}
+
 function findById(collection, idField, id) {
   return list(collection).find((record) => record[idField] === id) || null;
 }
@@ -71,4 +89,5 @@ module.exports = {
   insert,
   list,
   nextSequence,
+  updateById,
 };

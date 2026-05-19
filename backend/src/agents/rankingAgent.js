@@ -1,7 +1,7 @@
 // agents/rankingAgent.js — Agent 4: Provider Ranking
 // Scores and ranks providers using weighted formula
 
-const { runWithAdapter, googleStubs } = require('../tools/mode');
+const { runWithAdapter } = require('../tools/mode');
 
 /**
  * Haversine distance between two lat/lng points (km)
@@ -27,15 +27,43 @@ function haversine(lat1, lon1, lat2, lon2) {
  */
 async function run(input) {
   const { providers, userLat, userLng, timeWindow, resolvedDate } = input;
-  
-  const mockImpl = async () => {
+
+  const mockImpl = async () => scoreProviders({
+    providers,
+    userLat,
+    userLng,
+    timeWindow,
+    resolvedDate,
+    distanceResolver: async (p) => ({ distanceKm: haversine(userLat, userLng, p.lat, p.lng) }),
+  });
+
+  const googleImpl = async () => {
     if (!providers || providers.length === 0) {
       return { rankedProviders: [], status: 'no_providers_to_rank' };
     }
 
-    const scored = providers.map(p => {
-      const distanceKm = haversine(userLat, userLng, p.lat, p.lng);
+    const routeDistances = await computeRouteMatrixWithGoogle({ providers, userLat, userLng });
+    return scoreProviders({
+      providers,
+      userLat,
+      userLng,
+      timeWindow,
+      resolvedDate,
+      distanceResolver: async (_p, index) => routeDistances[index],
+    });
+  };
 
+  return runWithAdapter('distance', mockImpl, googleImpl);
+}
+
+async function scoreProviders({ providers, timeWindow, resolvedDate, distanceResolver }) {
+  if (!providers || providers.length === 0) {
+    return { rankedProviders: [], status: 'no_providers_to_rank' };
+  }
+
+  const scored = await Promise.all(providers.map(async (p, index) => {
+      const routeDistance = await distanceResolver(p, index);
+      const distanceKm = routeDistance.distanceKm;
       // Availability score: is there a slot in the requested window?
       let availabilityScore = 0;
       let availableSlot = null;
@@ -121,6 +149,11 @@ async function run(input) {
         score: Math.round(score * 1000) / 1000,
         distanceKm: Math.round(distanceKm * 10) / 10,
         distanceLabel: `${(Math.round(distanceKm * 10) / 10)} km`,
+        durationSeconds: routeDistance.durationSeconds || null,
+        durationLabel: routeDistance.durationSeconds ? formatDuration(routeDistance.durationSeconds) : null,
+        googleMapsUri: p.googleMapsUri || null,
+        googlePlaceId: p.googlePlaceId || null,
+        formattedAddress: p.formattedAddress || null,
         availableSlot,
         slotLabel,
         reasonCodes,
@@ -128,26 +161,168 @@ async function run(input) {
         description: buildDescription(p, distanceKm, availabilityScore, timeWindow),
         gradient: getGradient(p.category),
       };
-    });
+    }));
 
-    // Sort descending by score
-    scored.sort((a, b) => b.score - a.score);
+  // Sort descending by score
+  scored.sort((a, b) => b.score - a.score);
 
-    return {
-      rankedProviders: scored,
-      status: 'ranked',
-    };
+  return {
+    rankedProviders: scored,
+    status: 'ranked',
   };
-
-  return runWithAdapter('distance', mockImpl, googleStubs.distance);
 }
 
+async function computeRouteMatrixWithGoogle({ providers, userLat, userLng }) {
+  const key = process.env.GOOGLE_ROUTES_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
+  if (!key) {
+    debugGoogleDistance({
+      skipped: true,
+      reason: 'not_configured',
+      requiredEnv: ['GOOGLE_ROUTES_API_KEY', 'GOOGLE_MAPS_API_KEY'],
+    });
+    throw new Error('not_configured');
+  }
+  if (!Number.isFinite(userLat) || !Number.isFinite(userLng)) {
+    debugGoogleDistance({
+      skipped: true,
+      reason: 'missing_origin',
+      origin: { lat: userLat, lng: userLng },
+    });
+    throw new Error('google_distance_missing_origin');
+  }
 
+  const destinations = providers.map((provider) => {
+    if (!Number.isFinite(provider.lat) || !Number.isFinite(provider.lng)) {
+      throw new Error('google_distance_malformed_provider');
+    }
+    return {
+      waypoint: {
+        location: {
+          latLng: {
+            latitude: provider.lat,
+            longitude: provider.lng,
+          },
+        },
+      },
+    };
+  });
+
+  const timeoutMs = Number(process.env.GOOGLE_DISTANCE_TIMEOUT_MS || 5000);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  let response;
+  const requestSummary = {
+    origin: { lat: userLat, lng: userLng },
+    destinations: providers.map((provider) => ({
+      providerId: provider.id,
+      name: provider.name,
+      lat: provider.lat,
+      lng: provider.lng,
+    })),
+    travelMode: 'DRIVE',
+    routingPreference: 'TRAFFIC_UNAWARE',
+  };
+
+  try {
+    response = await fetch('https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': key,
+        'X-Goog-FieldMask': 'originIndex,destinationIndex,status,condition,distanceMeters,duration',
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        origins: [{
+          waypoint: {
+            location: {
+              latLng: {
+                latitude: userLat,
+                longitude: userLng,
+              },
+            },
+          },
+        }],
+        destinations,
+        travelMode: 'DRIVE',
+        routingPreference: 'TRAFFIC_UNAWARE',
+      }),
+    });
+  } catch (err) {
+    debugGoogleDistance({ request: requestSummary, error: err.message });
+    if (err.name === 'AbortError') {
+      throw new Error('google_distance_timeout');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (!response.ok) {
+    const errText = await response.text().catch(() => '');
+    debugGoogleDistance({ request: requestSummary, status: response.status, ok: response.ok, errorText: errText });
+    const err = new Error(`google_distance_http_${response.status}`);
+    err.detail = errText;
+    throw err;
+  }
+
+  const body = await response.json();
+  debugGoogleDistance({ request: requestSummary, status: response.status, ok: response.ok, body });
+  const elements = Array.isArray(body) ? body : body.elements;
+  if (!Array.isArray(elements) || elements.length === 0) {
+    throw new Error('google_distance_empty_result');
+  }
+
+  const byDestination = new Map();
+  for (const element of elements) {
+    const destinationIndex = element.destinationIndex;
+    if (!Number.isInteger(destinationIndex)) continue;
+    if (element.condition && element.condition !== 'ROUTE_EXISTS') continue;
+    if (element.status && !isOkStatus(element.status)) continue;
+    if (!Number.isFinite(element.distanceMeters)) continue;
+    byDestination.set(destinationIndex, {
+      distanceKm: element.distanceMeters / 1000,
+      durationSeconds: parseDurationSeconds(element.duration),
+    });
+  }
+
+  return providers.map((_provider, index) => {
+    const routeDistance = byDestination.get(index);
+    if (!routeDistance) throw new Error('google_distance_missing_element');
+    return routeDistance;
+  });
+}
+
+function debugGoogleDistance(payload) {
+  if (process.env.DEBUG_GOOGLE_RESPONSE !== 'true' &&
+      process.env.DEBUG_GOOGLE_DISTANCE_RESPONSE !== 'true') return;
+  console.log('[google:distance]', JSON.stringify(payload, null, 2));
+}
 
 function projectSlotToDate(slot, resolvedDate) {
   if (!slot || !resolvedDate) return slot;
   const timeWithZone = slot.slice(10);
   return `${resolvedDate}${timeWithZone}`;
+}
+
+function isOkStatus(status) {
+  if (typeof status === 'string') return status === 'OK';
+  if (typeof status === 'object') return !status.code || status.code === 0 || status.code === 'OK';
+  return true;
+}
+
+function parseDurationSeconds(duration) {
+  if (typeof duration !== 'string') return null;
+  const match = duration.match(/^(\d+(?:\.\d+)?)s$/);
+  return match ? Math.round(Number(match[1])) : null;
+}
+
+function formatDuration(seconds) {
+  const minutes = Math.max(1, Math.round(seconds / 60));
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const remaining = minutes % 60;
+  return remaining ? `${hours} hr ${remaining} min` : `${hours} hr`;
 }
 
 function buildDescription(p, distKm, availScore, timeWindow) {
@@ -170,4 +345,4 @@ function getGradient(category) {
   return map[category] || ['#3B82F6', '#1D4ED8'];
 }
 
-module.exports = { run };
+module.exports = { run, computeRouteMatrixWithGoogle };

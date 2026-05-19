@@ -13,7 +13,7 @@ import Ic from '../src/components/Ic';
 import { AccentBtn } from '../src/components/Buttons';
 import { M } from '../src/theme';
 import { CATEGORIES, EXAMPLES } from '../src/data';
-import { orchestrate, checkHealth } from '../src/api';
+import { checkHealth } from '../src/api';
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -21,6 +21,7 @@ export default function HomeScreen() {
   const [city, setCity]         = useState('Islamabad');
   const [focus, setFocus]       = useState(false);
   const [cityOpen, setCityOpen] = useState(false);
+  const [examplesOpen, setExamplesOpen] = useState(false);
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState(null);
   const [online, setOnline]     = useState(null);
@@ -40,14 +41,12 @@ export default function HomeScreen() {
     setError(null);
 
     try {
-      const result = await orchestrate({ text: query.trim(), cityHint: city });
-      // Navigate to loading screen, passing full API result as serialized JSON
       router.push({
         pathname: '/loading',
         params: {
           dest: 'understanding',
-          apiData: JSON.stringify(result),
           query: query.trim(),
+          city,
         },
       });
     } catch (err) {
@@ -81,14 +80,47 @@ export default function HomeScreen() {
     </View>
   );
 
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+
   return (
     <View style={{ flex: 1, backgroundColor: M.bg }}>
-      <TopBar title="AISEEKHO" subtitle="AI Service Agent" action={topAction} />
+      <TopBar
+        title="KariGo"
+        action={topAction}
+        logo={require('../assets/logo.png')}
+      />
+
+      {/* Ambient gradient orbs */}
+      <View pointerEvents="none" style={{
+        position: 'absolute', top: 80, right: -100,
+        width: 280, height: 280, borderRadius: 280,
+        backgroundColor: M.accentSoft, opacity: 0.35,
+      }} />
+      <View pointerEvents="none" style={{
+        position: 'absolute', top: 200, left: -120,
+        width: 240, height: 240, borderRadius: 240,
+        backgroundColor: M.agentBg, opacity: 0.4,
+      }} />
 
       <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         {/* Greeting */}
         <View style={{ paddingHorizontal: 18, paddingTop: 20, paddingBottom: 18 }}>
-          <Text style={{ fontSize: 26, fontWeight: '800', color: M.text, letterSpacing: -0.5, marginBottom: 4 }}>
+          <View style={{
+            flexDirection: 'row', alignItems: 'center', gap: 6,
+            backgroundColor: M.surface,
+            alignSelf: 'flex-start',
+            paddingHorizontal: 10, paddingVertical: 5,
+            borderRadius: 999,
+            borderWidth: 1, borderColor: M.border,
+            marginBottom: 10,
+          }}>
+            <Ic name="sparkle" size={11} color={M.accentDeep} fill />
+            <Text style={{ fontSize: 11, fontWeight: '700', color: M.textMute, letterSpacing: 0.3 }}>
+              {greeting.toUpperCase()}
+            </Text>
+          </View>
+          <Text style={{ fontSize: 28, fontWeight: '800', color: M.text, letterSpacing: -0.6, marginBottom: 4 }}>
             Hi there.
           </Text>
           <Text style={{ fontSize: 15, color: M.textMute, fontWeight: '500' }}>
@@ -246,38 +278,100 @@ export default function HomeScreen() {
           </ScrollView>
         </View>
 
-        {/* Examples */}
+        {/* Examples \u2014 collapsed by default, expandable */}
         <View style={{ paddingHorizontal: 14, paddingTop: 20, paddingBottom: 12 }}>
-          <Text style={{ fontSize: 10, fontWeight: '700', color: M.textDim, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 10 }}>
-            Try one of these
-          </Text>
-          <View style={{ gap: 6 }}>
-            {EXAMPLES.map((ex, i) => {
-              const isAr = /[\u0600-\u06FF]/.test(ex);
-              const sel = query === ex;
-              return (
-                <TouchableOpacity
-                  key={i}
-                  onPress={() => setQuery(ex)}
-                  style={{
-                    backgroundColor: sel ? M.accentSoft : M.surface,
-                    borderRadius: 12, padding: 14,
-                    borderWidth: 1,
-                    borderColor: sel ? M.accent : M.border,
-                  }}
-                >
-                  <Text style={{
-                    fontSize: 13, color: sel ? M.accentDeep : M.text,
-                    fontWeight: sel ? '600' : '400',
-                    textAlign: isAr ? 'right' : 'left',
-                    lineHeight: 19,
-                  }}>
-                    {ex}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+          <TouchableOpacity
+            onPress={() => setExamplesOpen((v) => !v)}
+            activeOpacity={0.7}
+            style={{
+              flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+              marginBottom: examplesOpen ? 10 : 0,
+            }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Ic name="sparkle" size={12} color={M.textDim} />
+              <Text style={{ fontSize: 11, fontWeight: '700', color: M.textDim, letterSpacing: 1, textTransform: 'uppercase' }}>
+                Try an example
+              </Text>
+            </View>
+            <View style={{
+              flexDirection: 'row', alignItems: 'center', gap: 4,
+              paddingHorizontal: 8, paddingVertical: 4,
+              borderRadius: 8,
+              backgroundColor: M.surface,
+              borderWidth: 1, borderColor: M.border,
+            }}>
+              <Text style={{ fontSize: 11, fontWeight: '700', color: M.textMute }}>
+                {examplesOpen ? 'Hide' : `${EXAMPLES.length}`}
+              </Text>
+              <View style={{ transform: [{ rotate: examplesOpen ? '180deg' : '0deg' }] }}>
+                <Ic name="chev" size={12} color={M.textMute} weight={2.2} />
+              </View>
+            </View>
+          </TouchableOpacity>
+
+          {!examplesOpen ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ gap: 8, paddingTop: 10, paddingBottom: 2 }}
+            >
+              {EXAMPLES.map((ex, i) => {
+                const isAr = /[\u0600-\u06FF]/.test(ex);
+                const sel = query === ex;
+                return (
+                  <TouchableOpacity
+                    key={i}
+                    onPress={() => setQuery(ex)}
+                    activeOpacity={0.8}
+                    style={{
+                      backgroundColor: sel ? M.accentSoft : M.surface,
+                      borderRadius: 999, paddingHorizontal: 14, paddingVertical: 9,
+                      borderWidth: 1,
+                      borderColor: sel ? M.accent : M.border,
+                      maxWidth: 280,
+                    }}
+                  >
+                    <Text numberOfLines={1} style={{
+                      fontSize: 12.5, color: sel ? M.accentDeep : M.text,
+                      fontWeight: sel ? '700' : '500',
+                      textAlign: isAr ? 'right' : 'left',
+                    }}>
+                      {ex}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          ) : (
+            <View style={{ gap: 6 }}>
+              {EXAMPLES.map((ex, i) => {
+                const isAr = /[\u0600-\u06FF]/.test(ex);
+                const sel = query === ex;
+                return (
+                  <TouchableOpacity
+                    key={i}
+                    onPress={() => setQuery(ex)}
+                    style={{
+                      backgroundColor: sel ? M.accentSoft : M.surface,
+                      borderRadius: 12, padding: 14,
+                      borderWidth: 1,
+                      borderColor: sel ? M.accent : M.border,
+                    }}
+                  >
+                    <Text style={{
+                      fontSize: 13, color: sel ? M.accentDeep : M.text,
+                      fontWeight: sel ? '600' : '400',
+                      textAlign: isAr ? 'right' : 'left',
+                      lineHeight: 19,
+                    }}>
+                      {ex}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
         </View>
 
         {/* CTA */}

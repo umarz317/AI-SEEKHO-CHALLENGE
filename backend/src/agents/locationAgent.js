@@ -40,7 +40,14 @@ async function run(input) {
   };
 
   const googleImpl = async () => {
-    if (!locationText) return buildMissingLocation(city);
+    if (!locationText) {
+      debugGoogleLocation({
+        skipped: true,
+        reason: 'missing_location_text',
+        city,
+      });
+      return buildMissingLocation(city);
+    }
     return geocodeWithGoogle({ locationText, city });
   };
 
@@ -56,7 +63,14 @@ async function geocodeWithGoogle({ locationText, city }) {
   const key = process.env.GOOGLE_GEOCODING_API_KEY ||
     process.env.GOOGLE_MAPS_API_KEY ||
     process.env.GOOGLE_PLACES_API_KEY;
-  if (!key) throw new Error('not_configured');
+  if (!key) {
+    debugGoogleLocation({
+      skipped: true,
+      reason: 'not_configured',
+      requiredEnv: ['GOOGLE_GEOCODING_API_KEY', 'GOOGLE_MAPS_API_KEY', 'GOOGLE_PLACES_API_KEY'],
+    });
+    throw new Error('not_configured');
+  }
 
   const query = `${locationText}, ${city}, Pakistan`;
   const url = new URL('https://maps.googleapis.com/maps/api/geocode/json');
@@ -72,6 +86,7 @@ async function geocodeWithGoogle({ locationText, city }) {
   try {
     response = await fetch(url, { signal: controller.signal });
   } catch (err) {
+    debugGoogleLocation({ request: { address: query }, error: err.message });
     if (err.name === 'AbortError') {
       throw new Error('google_location_timeout');
     }
@@ -81,12 +96,15 @@ async function geocodeWithGoogle({ locationText, city }) {
   }
 
   if (!response.ok) {
+    const errText = await response.text().catch(() => '');
+    debugGoogleLocation({ request: { address: query }, status: response.status, ok: response.ok, errorText: errText });
     const err = new Error(`google_location_http_${response.status}`);
-    err.detail = await response.text().catch(() => '');
+    err.detail = errText;
     throw err;
   }
 
   const body = await response.json();
+  debugGoogleLocation({ request: { address: query }, status: response.status, ok: response.ok, body });
   if (body.status !== 'OK') {
     const err = new Error(`google_location_${String(body.status || 'unknown').toLowerCase()}`);
     err.detail = body.error_message || '';
@@ -110,6 +128,12 @@ async function geocodeWithGoogle({ locationText, city }) {
     placeId: result.place_id || null,
     locationType: result.geometry?.location_type || null,
   };
+}
+
+function debugGoogleLocation(payload) {
+  if (process.env.DEBUG_GOOGLE_RESPONSE !== 'true' &&
+      process.env.DEBUG_GOOGLE_LOCATION_RESPONSE !== 'true') return;
+  console.log('[google:location]', JSON.stringify(payload, null, 2));
 }
 
 function inferCityFromComponents(components = []) {

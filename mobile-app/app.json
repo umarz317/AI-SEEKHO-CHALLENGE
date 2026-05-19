@@ -1,9 +1,9 @@
 {
   "expo": {
-    "name": "AISEEKHO",
-    "slug": "aiseekho",
+    "name": "KariGo",
+    "slug": "karigo",
     "version": "1.0.0",
-    "scheme": "aiseekho",
+    "scheme": "karigo",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -15,23 +15,48 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.aiseekho.app"
+      "bundleIdentifier": "com.KariGo.app",
+      "icon": "./assets/icon.png",
+      "googleServicesFile": "./GoogleService-Info.plist",
+      "infoPlist": {
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLSchemes": [
+              "com.googleusercontent.apps.710021364725-i1bino5399o7v4n5u48npoaqfvpmr97g"
+            ]
+          }
+        ]
+      }
     },
     "android": {
+      "icon": "./assets/icon.png",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#10B981"
+        "backgroundColor": "#FFFFFF"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.aiseekho.app"
+      "package": "com.KariGo.app",
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "bundler": "metro",
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      "./plugins/withFirebaseModularHeaders",
       "expo-router",
-      "expo-font"
-    ]
+      "expo-font",
+      "@react-native-firebase/app",
+      "@react-native-firebase/auth",
+      "expo-build-properties",
+      "expo-notifications"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "8dd42632-529d-4845-82d0-2eafb0c23401"
+      },
+      "router": {}
+    },
+    "owner": "umar3174"
   }
 }

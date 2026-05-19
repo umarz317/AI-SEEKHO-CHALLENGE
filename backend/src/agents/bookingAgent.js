@@ -1,8 +1,9 @@
 // agents/bookingAgent.js — Agent 5: Booking
-// Creates a simulated booking for the top-ranked provider
+// Creates a provider-facing booking request and tracks lifecycle transitions
 
 const store = require('../storage/localStore');
 const { runWithAdapter, googleStubs } = require('../tools/mode');
+const { sendProviderBookingRequest } = require('../services/providerMessaging');
 
 /**
  * @param {{
@@ -16,7 +17,7 @@ const { runWithAdapter, googleStubs } = require('../tools/mode');
  * @returns {object} booking confirmation
  */
 async function run(input) {
-  const { provider, resolvedDate, dateFull, locationText, formattedLocation, userId } = input;
+  const { provider, resolvedDate, dateFull, locationText, formattedLocation, userId, serviceType } = input;
 
   const mockImpl = async () => {
     if (!provider) {
@@ -31,14 +32,31 @@ async function run(input) {
     const booking = {
       bookingId,
       userId: userId || 'demo-user-001',
-      status: 'confirmed',
+      status: 'pending_user_confirmation',
+      lifecycleStatus: 'created',
       providerId: provider.providerId,
       providerName: provider.name,
       slot: provider.availableSlot,
       slotLabel: `${dateFull} · ${provider.slotLabel}`,
       location: formattedLocation || `${locationText}, Islamabad`,
+      serviceType,
       fee: 'Free consultation',
-      confirmationMessage: `Booking confirmed with ${provider.name} for ${provider.slotLabel} ${dateFull ? 'on ' + dateFull : ''}.`,
+      confirmationMessage: `Booking drafted for ${provider.name}. Awaiting your confirmation.`,
+      providerResponseStatus: null,
+      providerResponseMessage: null,
+      providerRespondedAt: null,
+      confirmedAt: null,
+      rejectedAt: null,
+      providerPhone: null,
+      providerMessageSid: null,
+      providerMessageStatus: null,
+      providerMessageBody: null,
+      statusHistory: [{
+        status: 'pending_user_confirmation',
+        lifecycleStatus: 'created',
+        message: 'Booking drafted; waiting for user confirmation.',
+        at: new Date().toISOString(),
+      }],
       stateChanged: true,
       createdAt: new Date().toISOString(),
     };
@@ -49,6 +67,101 @@ async function run(input) {
   return runWithAdapter('booking', mockImpl, googleStubs.booking);
 }
 
+function updateBooking(bookingId, patch, historyMessage) {
+  return store.updateById('bookings', 'bookingId', bookingId, (booking) => {
+    const at = new Date().toISOString();
+    const next = {
+      ...booking,
+      ...patch,
+      updatedAt: at,
+    };
+    next.statusHistory = [
+      ...(booking.statusHistory || []),
+      {
+        status: next.status,
+        lifecycleStatus: next.lifecycleStatus,
+        message: historyMessage,
+        at,
+      },
+    ];
+    return next;
+  });
+}
+
+function applyProviderResponse({ bookingId, intent, message, from, messageSid, parser, proposedSlot }) {
+  const booking = getBooking(bookingId);
+  if (!booking) return null;
+
+  if (intent === 'accepted') {
+    return updateBooking(bookingId, {
+      status: 'confirmed',
+      lifecycleStatus: 'provider_accepted',
+      providerResponseStatus: 'accepted',
+      providerResponseMessage: message,
+      providerResponseFrom: from,
+      providerResponseMessageSid: messageSid,
+      providerResponseParser: parser,
+      providerRespondedAt: new Date().toISOString(),
+      confirmedAt: new Date().toISOString(),
+      confirmationMessage: `Provider accepted ${booking.bookingId}. Your booking is confirmed.`,
+    }, 'Provider accepted the booking.');
+  }
+
+  if (intent === 'rejected') {
+    return updateBooking(bookingId, {
+      status: 'rejected',
+      lifecycleStatus: 'provider_rejected',
+      providerResponseStatus: 'rejected',
+      providerResponseMessage: message,
+      providerResponseFrom: from,
+      providerResponseMessageSid: messageSid,
+      providerResponseParser: parser,
+      providerRespondedAt: new Date().toISOString(),
+      rejectedAt: new Date().toISOString(),
+      confirmationMessage: 'Provider is unavailable for this booking request.',
+    }, 'Provider rejected the booking.');
+  }
+
+  return updateBooking(bookingId, {
+    lifecycleStatus: 'provider_reply_needs_review',
+    providerResponseStatus: intent || 'unknown',
+    providerResponseMessage: message,
+    providerResponseFrom: from,
+    providerResponseMessageSid: messageSid,
+    providerResponseParser: parser,
+    providerRespondedAt: new Date().toISOString(),
+    proposedSlot: proposedSlot || null,
+  }, 'Provider reply needs review.');
+}
+
+async function confirmBooking(bookingId) {
+  const booking = getBooking(bookingId);
+  if (!booking) return null;
+
+  if (booking.status !== 'pending_user_confirmation') {
+    return booking;
+  }
+
+  try {
+    const message = await sendProviderBookingRequest(booking);
+    return updateBooking(bookingId, {
+      status: 'pending_provider_response',
+      lifecycleStatus: 'message_sent_to_provider',
+      providerPhone: message.providerPhone,
+      providerMessageSid: message.providerMessageSid,
+      providerMessageStatus: message.providerMessageStatus,
+      providerMessageBody: message.providerMessageBody,
+      confirmationMessage: `Booking request sent to ${booking.providerName}. Waiting for provider response.`,
+    }, 'Provider WhatsApp message sent.');
+  } catch (err) {
+    return updateBooking(bookingId, {
+      status: 'provider_message_failed',
+      lifecycleStatus: 'provider_message_failed',
+      providerMessageError: err.message || 'Provider WhatsApp message failed.',
+    }, 'Provider WhatsApp message failed.');
+  }
+}
+
 function getBooking(bookingId) {
   return store.findById('bookings', 'bookingId', bookingId);
 }
@@ -57,4 +170,4 @@ function getAllBookings() {
   return store.list('bookings');
 }
 
-module.exports = { run, getBooking, getAllBookings };
+module.exports = { applyProviderResponse, confirmBooking, getAllBookings, getBooking, run, updateBooking };

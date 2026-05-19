@@ -1,18 +1,20 @@
 // src/components/BottomNav.js
 import React from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
+import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ic from './Ic';
 import { M } from '../theme';
 
 const TABS = [
-  { id: 'book',    label: 'Book',     icon: 'homeic' },
-  { id: 'history', label: 'Bookings', icon: 'list'   },
-  { id: 'profile', label: 'Profile',  icon: 'user'   },
+  { id: 'book',    label: 'Book',     icon: 'homeic', href: '/' },
+  { id: 'history', label: 'Bookings', icon: 'list',   href: '/bookings' },
+  { id: 'profile', label: 'Profile',  icon: 'user',   href: '/profile' },
 ];
 
 export default function BottomNav({ active = 'book' }) {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   return (
     <View style={{
       backgroundColor: M.surface,
@@ -22,12 +24,15 @@ export default function BottomNav({ active = 'book' }) {
       paddingTop: 4,
       paddingBottom: insets.bottom || 8,
     }}>
-      {TABS.map(({ id, label, icon }) => {
+      {TABS.map(({ id, label, icon, href }) => {
         const isActive = id === active;
         return (
           <TouchableOpacity
             key={id}
             activeOpacity={0.7}
+            onPress={() => {
+              if (href && id !== active) router.push(href);
+            }}
             style={{ flex: 1, alignItems: 'center', gap: 3 }}
           >
             <View style={{

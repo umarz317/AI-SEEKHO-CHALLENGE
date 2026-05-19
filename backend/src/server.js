@@ -1,15 +1,25 @@
 // server.js — Express server entry point
-require('dotenv').config();
+const path = require('path');
+const dotenv = require('dotenv');
+
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../.env.local'), override: true });
 const express = require('express');
 const cors = require('cors');
 const routes = require('./routes/orchestrate');
+const { createServer } = require('http');
+const { initRealtime } = require('./services/realtime');
 
 const app = express();
+const httpServer = createServer(app);
 const PORT = process.env.PORT || 3001;
+
+initRealtime(httpServer);
 
 // Middleware
 app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
 
 // Request logger
 app.use((req, res, next) => {
@@ -24,7 +34,7 @@ app.use('/api', routes);
 // Root
 app.get('/', (req, res) => {
   res.json({
-    name: 'AI-SEEKHO Service Orchestrator',
+    name: 'KariGo Service Orchestrator',
     version: '1.0.0',
     mode: process.env.APP_MODE || 'demo',
     endpoints: [
@@ -35,14 +45,16 @@ app.get('/', (req, res) => {
       'GET  /api/traces/:id',
       'GET  /api/reminders',
       'GET  /api/notifications',
+      'POST /api/webhooks/twilio/whatsapp',
+      'POST /api/webhooks/twilio/status',
       'GET  /api/health',
     ],
   });
 });
 
 // Start
-app.listen(PORT, () => {
-  console.log(`\n🚀 AI-SEEKHO Backend running on http://localhost:${PORT}`);
+httpServer.listen(PORT, () => {
+  console.log(`\n🚀 KariGo Backend running on http://localhost:${PORT}`);
   console.log(`   Mode: ${process.env.APP_MODE || 'demo'}`);
   console.log(`   Try: curl -X POST http://localhost:${PORT}/api/orchestrate -H "Content-Type: application/json" -d '{"text":"Mujhe kal subah G-13 mein AC technician chahiye","cityHint":"Islamabad"}'\n`);
 });

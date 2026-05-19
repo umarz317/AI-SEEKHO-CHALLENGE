@@ -17,6 +17,7 @@ async function runWithAdapter(type, mockImpl, googleImpl, ...args) {
       const res = await googleImpl(...args);
       return { ...res, source: `google_${type}`, adapterMode: mode };
     } catch (e) {
+      debugAdapterFallback(type, e);
       const mockRes = await mockImpl(...args);
       return {
         ...mockRes,
@@ -30,6 +31,16 @@ async function runWithAdapter(type, mockImpl, googleImpl, ...args) {
   // mock mode
   const mockRes = await mockImpl(...args);
   return { ...mockRes, source: `mock_${type}`, adapterMode: 'mock' };
+}
+
+function debugAdapterFallback(type, error) {
+  if (process.env.DEBUG_GOOGLE_RESPONSE !== 'true' &&
+      process.env.DEBUG_ADAPTER_FALLBACK !== 'true') return;
+  console.log('[adapter:fallback]', JSON.stringify({
+    adapter: type,
+    mode: 'hybrid',
+    reason: error.message || 'google_adapter_failed',
+  }, null, 2));
 }
 
 const googleStubs = {

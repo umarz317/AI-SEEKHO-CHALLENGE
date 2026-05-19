@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "710021364725",
+    "project_id": "aiseekhio",
+    "storage_bucket": "aiseekhio.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:710021364725:android:0e0256e0230f4a80b87ebc",
+        "android_client_info": {
+          "package_name": "com.KariGo.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBg1IeOtSlMFhMdixyaVqA-shBBPOZ96Ug"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

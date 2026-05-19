@@ -1,17 +1,33 @@
 {
-  "name": "ai-seekho-backend",
+  "name": "karigo-backend",
   "version": "1.0.0",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "node --watch src/server.js",
+    "dev": "node --watch-path=src src/server.js",
+    "dev:nodemon": "nodemon --watch src --ignore runtime --ignore 'runtime/**' --ext js,json src/server.js",
     "test": "node --test",
     "demo:artifacts": "node scripts/generate-demo-artifacts.js"
+  },
+  "nodemonConfig": {
+    "watch": [
+      "src"
+    ],
+    "ext": "js,json",
+    "ignore": [
+      "runtime",
+      "runtime/**",
+      "node_modules"
+    ],
+    "exec": "node src/server.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "firebase-admin": "^13.10.0",
+    "socket.io": "^4.8.3",
+    "twilio": "^6.0.2",
     "uuid": "^11.1.0"
   }
 }

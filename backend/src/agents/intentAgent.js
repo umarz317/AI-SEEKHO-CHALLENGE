@@ -41,6 +41,44 @@ const SERVICE_LABELS = {
   carpenter: 'Carpenter',
 };
 
+const PROVIDER_SEARCH_PROFILES = {
+  ac_technician: {
+    label: 'home air conditioner repair HVAC technician',
+    includeTerms: ['home', 'air conditioner', 'repair', 'HVAC', 'AC service'],
+    excludeTerms: ['car', 'auto', 'automotive', 'vehicle', 'motor', 'garage', 'workshop'],
+  },
+  plumber: {
+    label: 'residential plumber plumbing repair',
+    includeTerms: ['plumber', 'plumbing', 'pipe repair', 'leak repair'],
+    excludeTerms: ['supplies', 'hardware store', 'manufacturer'],
+  },
+  electrician: {
+    label: 'residential electrician electrical repair',
+    includeTerms: ['electrician', 'electrical repair', 'wiring'],
+    excludeTerms: ['electronics store', 'appliance store', 'supplier'],
+  },
+  cleaner: {
+    label: 'home cleaning service',
+    includeTerms: ['home cleaning', 'house cleaning', 'cleaning service'],
+    excludeTerms: ['laundry', 'dry cleaner', 'car wash'],
+  },
+  beautician: {
+    label: 'beautician makeup artist salon service',
+    includeTerms: ['beautician', 'makeup artist', 'salon'],
+    excludeTerms: ['beauty supply', 'cosmetics store'],
+  },
+  tutor: {
+    label: 'home tutor tutoring teacher',
+    includeTerms: ['home tutor', 'tutoring', 'teacher'],
+    excludeTerms: ['book store', 'school supplies'],
+  },
+  carpenter: {
+    label: 'carpenter furniture repair woodwork',
+    includeTerms: ['carpenter', 'furniture repair', 'woodwork'],
+    excludeTerms: ['lumber store', 'hardware store'],
+  },
+};
+
 const LOCATION_PATTERN = /\b([A-Z]-\d{1,2}|[EFGHI]-\d{1,2}|DHA(?:\s*Phase\s*\d+)?|Bahria Town|Satellite Town|Gulberg|Johar Town)\b/i;
 
 const TIME_MAP = {
@@ -174,6 +212,7 @@ function parseWithRules({ text, cityHint = 'Islamabad' }) {
     timeText: timeInfo?.timeLabel || null,
     timeWindow: timeInfo?.timeWindow || null,
     timeWindowLabel: timeInfo?.timeWindowLabel || null,
+    providerSearch: buildProviderSearchProfile(service?.normalizedServiceType, null),
     detectedLanguage: lang,
     confidence: Math.round(confidence * 100) / 100,
     parser: 'rules',
@@ -209,7 +248,16 @@ async function parseWithLlmThenRules({ text, cityHint = 'Islamabad' }) {
         }
       },
       detectedLanguage: { type: "STRING", description: "Urdu, Roman Urdu, English, or Mixed" },
-      confidence: { type: "NUMBER", description: "Confidence score between 0.0 and 1.0" }
+      confidence: { type: "NUMBER", description: "Confidence score between 0.0 and 1.0" },
+      providerSearch: {
+        type: "OBJECT",
+        description: "Google Places search profile for finding the right provider type; keep it grounded in the requested service and avoid unrelated verticals.",
+        properties: {
+          label: { type: "STRING", description: "Short Places query phrase for provider discovery, e.g. home air conditioner repair HVAC technician" },
+          includeTerms: { type: "ARRAY", items: { type: "STRING" }, description: "Terms that should match the intended provider category" },
+          excludeTerms: { type: "ARRAY", items: { type: "STRING" }, description: "Terms that identify wrong provider categories to filter out" }
+        }
+      }
     }
   };
 
@@ -245,14 +293,17 @@ async function parseWithLlmThenRules({ text, cityHint = 'Islamabad' }) {
 
   if (!response.ok) {
     const errText = await response.text();
+    debugGeminiResponse({ status: response.status, ok: response.ok, errorText: errText });
     const err = new Error(`llm_intent_failed_${response.status}`);
     err.detail = errText;
     throw err;
   }
 
   const body = await response.json();
+  debugGeminiResponse({ status: response.status, ok: response.ok, body });
   const raw = body?.candidates?.[0]?.content?.parts?.[0]?.text;
   const llm = parseJsonObject(raw);
+  debugGeminiResponse({ parsedText: raw, parsedJson: llm });
   if (!llm) {
     throw new Error('llm_intent_invalid_json');
   }
@@ -260,10 +311,18 @@ async function parseWithLlmThenRules({ text, cityHint = 'Islamabad' }) {
   return normalizeLlmIntent({ llm, ruleResult, cityHint });
 }
 
+function debugGeminiResponse(payload) {
+  if (process.env.DEBUG_GEMINI_RESPONSE !== 'true') return;
+  console.log('[gemini:intent]', JSON.stringify(payload, null, 2));
+}
+
 function buildIntentPrompt({ text, cityHint }) {
   return [
     'Extract the service booking request details from the user text.',
     'Dates should be relative to Asia/Karachi. Return dateText plus resolvedDate as YYYY-MM-DD when a date is present.',
+    'Also return providerSearch for Google Places: label, includeTerms, and excludeTerms.',
+    'For home AC service, prefer home air conditioner/HVAC repair and exclude car/auto/garage/workshop results unless the user clearly asks for car AC.',
+    'Keep normalizedServiceType limited to: ac_technician, plumber, electrician, tutor, beautician, cleaner, carpenter, unknown.',
     `City hint: ${cityHint || 'Islamabad'}`,
     `User text: ${text}`
   ].join('\n');
@@ -314,6 +373,7 @@ function normalizeLlmIntent({ llm, ruleResult, cityHint }) {
     timeText: timeInfo.timeLabel,
     timeWindow: timeInfo.timeWindow,
     timeWindowLabel: timeInfo.timeWindowLabel,
+    providerSearch: buildProviderSearchProfile(normalizedServiceType, llm.providerSearch || ruleResult.providerSearch),
     detectedLanguage: llm.detectedLanguage || ruleResult.detectedLanguage,
     confidence: normalizeConfidence(llm.confidence, ruleResult.confidence),
     parser: 'llm+rules',
@@ -409,4 +469,58 @@ function normalizeConfidence(value, fallback) {
   return Math.max(0, Math.min(1, Math.round(scaled * 100) / 100));
 }
 
-module.exports = { run, parseWithRules, parseWithLlmThenRules };
+function buildProviderSearchProfile(normalizedServiceType, candidate) {
+  if (!normalizedServiceType) return null;
+  const base = PROVIDER_SEARCH_PROFILES[normalizedServiceType] || {
+    label: SERVICE_LABELS[normalizedServiceType] || normalizedServiceType.replace(/_/g, ' '),
+    includeTerms: [SERVICE_LABELS[normalizedServiceType] || normalizedServiceType.replace(/_/g, ' ')],
+    excludeTerms: [],
+  };
+
+  const safeCandidate = sanitizeProviderSearchCandidate(candidate);
+  if (!safeCandidate) return { ...base };
+
+  return {
+    label: safeCandidate.label || base.label,
+    includeTerms: mergeTerms(base.includeTerms, safeCandidate.includeTerms),
+    excludeTerms: mergeTerms(base.excludeTerms, safeCandidate.excludeTerms),
+  };
+}
+
+function sanitizeProviderSearchCandidate(candidate) {
+  if (!candidate || typeof candidate !== 'object') return null;
+  return {
+    label: sanitizeSearchLabel(candidate.label),
+    includeTerms: sanitizeTermList(candidate.includeTerms),
+    excludeTerms: sanitizeTermList(candidate.excludeTerms),
+  };
+}
+
+function sanitizeSearchLabel(value) {
+  if (typeof value !== 'string') return null;
+  const cleaned = value.replace(/[^\p{L}\p{N}\s&/-]/gu, ' ').replace(/\s+/g, ' ').trim();
+  if (!cleaned || cleaned.length > 90) return null;
+  return cleaned;
+}
+
+function sanitizeTermList(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((term) => typeof term === 'string'
+      ? term.replace(/[^\p{L}\p{N}\s&/-]/gu, ' ').replace(/\s+/g, ' ').trim()
+      : null)
+    .filter((term) => term && term.length <= 40)
+    .slice(0, 8);
+}
+
+function mergeTerms(base = [], extra = []) {
+  const seen = new Set();
+  return [...base, ...extra].filter((term) => {
+    const key = term.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+module.exports = { run, parseWithRules, parseWithLlmThenRules, buildProviderSearchProfile };

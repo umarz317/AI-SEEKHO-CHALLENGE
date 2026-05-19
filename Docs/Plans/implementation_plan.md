@@ -17,8 +17,11 @@ INTENT_MODE=mock # mock = rules, hybrid = Gemini + fallback, google = Gemini req
 LOCATION_MODE=mock # mock = local JSON, hybrid = Google Geocoding + fallback, google = Google Geocoding required
 GOOGLE_GEOCODING_API_KEY=
 GOOGLE_LOCATION_TIMEOUT_MS=5000
-PROVIDER_MODE=mock
-DISTANCE_MODE=mock
+PROVIDER_MODE=mock # mock = local JSON, hybrid = Places Text Search + fallback, google = Places required
+GOOGLE_PROVIDER_TIMEOUT_MS=5000
+GOOGLE_PROVIDER_LIMIT=8
+DISTANCE_MODE=mock # mock = Haversine, hybrid = Routes + fallback, google = Routes required
+GOOGLE_DISTANCE_TIMEOUT_MS=5000
 BOOKING_STORE_MODE=local
 NOTIFICATION_MODE=mock
 REMINDER_MODE=mock

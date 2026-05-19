@@ -23,13 +23,22 @@ const COLORS = {
  * @param {{ userId: string, text: string, cityHint: string, timezone?: string }} request
  * @returns {object} full orchestration response
  */
-async function orchestrate(request) {
+async function orchestrate(request, options = {}) {
   const { userId = 'demo-user-001', text, cityHint = 'Islamabad', timezone = 'Asia/Karachi' } = request;
+  const { onProgress } = options;
   const traceSteps = [];
 
   // ---------- Step 1: Intent Understanding ----------
+  emitProgress(onProgress, {
+    agent: 'Intent Understanding',
+    tool: 'parse_request',
+    status: 'running',
+    icon: 'sparkle',
+    color: COLORS.purple,
+    output: 'Parsing request with the configured intent adapter.',
+  });
   const intent = await intentAgent.run({ text, cityHint });
-  traceSteps.push({
+  recordStep(traceSteps, onProgress, {
     agent: 'Intent Understanding',
     tool: 'parse_request',
     source: intent.source,
@@ -41,11 +50,19 @@ async function orchestrate(request) {
   });
 
   // ---------- Step 2: Location Resolution ----------
+  emitProgress(onProgress, {
+    agent: 'Location Resolution',
+    tool: 'resolve_location',
+    status: 'running',
+    icon: 'pin',
+    color: COLORS.agent,
+    output: `Resolving ${intent.locationText || 'customer location'}.`,
+  });
   const location = await locationAgent.run({
     locationText: intent.locationText,
     city: intent.city,
   });
-  traceSteps.push({
+  recordStep(traceSteps, onProgress, {
     agent: 'Location Resolution',
     tool: 'resolve_location',
     source: location.source,
@@ -60,7 +77,7 @@ async function orchestrate(request) {
 
   const missingFields = getMissingFields(intent, location);
   if (missingFields.length > 0) {
-    traceSteps.push({
+    recordStep(traceSteps, onProgress, {
       agent: 'Clarification',
       tool: 'request_missing_details',
       source: 'orchestrator_policy',
@@ -71,7 +88,7 @@ async function orchestrate(request) {
       summary: `Needs ${missingFields.join(', ')} before booking.`,
     });
 
-    addTraceWriterStep(traceSteps);
+    addTraceWriterStep(traceSteps, onProgress);
     const trace = traceAgent.run({ steps: traceSteps });
     return buildClarificationResponse({
       trace,
@@ -82,12 +99,21 @@ async function orchestrate(request) {
   }
 
   // ---------- Step 3: Provider Discovery ----------
+  emitProgress(onProgress, {
+    agent: 'Provider Discovery',
+    tool: 'find_providers',
+    status: 'running',
+    icon: 'list',
+    color: COLORS.blue,
+    output: `Searching providers for ${intent.serviceType || 'the requested service'}.`,
+  });
   const discovery = await discoveryAgent.run({
     normalizedServiceType: intent.normalizedServiceType,
+    providerSearch: intent.providerSearch,
     locationText: intent.locationText,
     city: location.city || intent.city,
   });
-  traceSteps.push({
+  recordStep(traceSteps, onProgress, {
     agent: 'Provider Discovery',
     tool: 'find_providers',
     source: discovery.source,
@@ -99,6 +125,14 @@ async function orchestrate(request) {
   });
 
   // ---------- Step 4: Provider Ranking ----------
+  emitProgress(onProgress, {
+    agent: 'Provider Ranking',
+    tool: 'rank_providers',
+    status: 'running',
+    icon: 'flow',
+    color: COLORS.amber,
+    output: 'Ranking providers by availability, distance, rating, and reliability.',
+  });
   const ranking = await rankingAgent.run({
     providers: discovery.providers,
     userLat: location.lat || 33.6844,
@@ -110,7 +144,7 @@ async function orchestrate(request) {
   const topProvider = ranking.rankedProviders[0] || null;
   const alternatives = ranking.rankedProviders.slice(1, 3);
 
-  traceSteps.push({
+  recordStep(traceSteps, onProgress, {
     agent: 'Provider Ranking',
     tool: 'rank_providers',
     source: ranking.source,
@@ -124,12 +158,20 @@ async function orchestrate(request) {
   });
 
   if (!topProvider) {
-    addTraceWriterStep(traceSteps);
+    addTraceWriterStep(traceSteps, onProgress);
     const trace = traceAgent.run({ steps: traceSteps });
     return buildNoMatchResponse({ trace, intent, location, discovery });
   }
 
   // ---------- Step 5: Booking ----------
+  emitProgress(onProgress, {
+    agent: 'Booking',
+    tool: 'create_booking',
+    status: 'running',
+    icon: 'check',
+    color: COLORS.accent,
+    output: `Creating booking for ${topProvider.name}.`,
+  });
   let booking = null;
   booking = await bookingAgent.run({
     provider: topProvider,
@@ -138,44 +180,26 @@ async function orchestrate(request) {
     locationText: intent.locationText,
     formattedLocation: location.formattedLocation,
     userId,
+    serviceType: intent.serviceType,
   });
-  traceSteps.push({
+  recordStep(traceSteps, onProgress, {
     agent: 'Booking',
     tool: 'create_booking',
     source: 'local_booking_store',
     status: 'success',
     icon: 'check',
     color: COLORS.accent,
-    output: `Booking ${booking.bookingId} created · ${intent.dateFull} @ ${topProvider.slotLabel} · CONFIRMED`,
-    summary: 'Booking confirmed.',
+    output: `Booking ${booking.bookingId} request sent · ${intent.dateFull} @ ${topProvider.slotLabel} · ${booking.status}`,
+    summary: 'Booking request sent to provider.',
   });
 
-  // ---------- Step 6: Follow-up ----------
-  let followUp = null;
-  followUp = await followUpAgent.run({
-    bookingId: booking.bookingId,
-    providerName: topProvider.name,
-    slot: topProvider.availableSlot,
-    formattedLocation: location.formattedLocation,
-  });
-  traceSteps.push({
-    agent: 'Follow-up',
-    tool: 'schedule_reminder',
-    source: 'local_reminder_store',
-    status: 'success',
-    icon: 'alarm',
-    color: COLORS.success,
-    output: `Reminder scheduled for ${intent.dateFull}, ${followUp.reminderTimeLabel}`,
-    summary: 'Reminder scheduled.',
-  });
-
-  // ---------- Step 7: Trace ----------
-  addTraceWriterStep(traceSteps);
+  // ---------- Step 6: Trace ----------
+  addTraceWriterStep(traceSteps, onProgress);
   const trace = traceAgent.run({ steps: traceSteps });
 
   // ---------- Build unified response ----------
   const response = {
-    status: 'confirmed',
+    status: booking.status,
     traceId: trace.traceId,
     adapterModes: {
       intent: intent.adapterMode,
@@ -192,6 +216,7 @@ async function orchestrate(request) {
       dateFull: intent.dateFull,
       timeLabel: intent.timeText,
       timeWindowLabel: intent.timeWindowLabel,
+      providerSearch: intent.providerSearch,
       detectedLanguage: intent.detectedLanguage,
       confidence: Math.round(intent.confidence * 100),
     },
@@ -208,7 +233,11 @@ async function orchestrate(request) {
       responseMin: topProvider.responseMin,
       yearsActive: topProvider.yearsActive,
       distance: topProvider.distanceLabel,
+      duration: topProvider.durationLabel,
       availability: topProvider.slotLabel,
+      googleMapsUri: topProvider.googleMapsUri,
+      googlePlaceId: topProvider.googlePlaceId,
+      formattedAddress: topProvider.formattedAddress,
       score: topProvider.score,
       reasons: topProvider.reasons,
       reasonCodes: topProvider.reasonCodes,
@@ -222,7 +251,11 @@ async function orchestrate(request) {
       gradient: alt.gradient,
       rating: alt.rating,
       distance: alt.distanceLabel,
+      duration: alt.durationLabel,
       availability: alt.slotLabel,
+      googleMapsUri: alt.googleMapsUri,
+      googlePlaceId: alt.googlePlaceId,
+      formattedAddress: alt.formattedAddress,
       score: alt.score,
       note: buildAltNote(alt, topProvider),
     })),
@@ -234,11 +267,17 @@ async function orchestrate(request) {
       slot: booking.slotLabel,
       location: booking.location,
       fee: booking.fee,
+      lifecycleStatus: booking.lifecycleStatus,
+      providerPhone: booking.providerPhone,
+      providerMessageSid: booking.providerMessageSid,
+      providerMessageStatus: booking.providerMessageStatus,
+      providerMessageError: booking.providerMessageError,
+      providerResponseStatus: booking.providerResponseStatus,
+      providerResponseMessage: booking.providerResponseMessage,
+      statusHistory: booking.statusHistory || [],
       confirmationMessage: booking.confirmationMessage,
-      reminderMessage: followUp
-        ? `Reminder set for ${followUp.reminderTimeLabel} — 1 hr before arrival.`
-        : null,
-      reminderTimeLabel: followUp?.reminderTimeLabel || null,
+      reminderMessage: null,
+      reminderTimeLabel: null,
     } : null,
 
     trace: trace.events,
@@ -255,8 +294,8 @@ function buildAltNote(alt, top) {
   return `Score ${alt.score}, ${alt.distanceLabel} away.`;
 }
 
-function addTraceWriterStep(traceSteps) {
-  traceSteps.push({
+function addTraceWriterStep(traceSteps, onProgress) {
+  recordStep(traceSteps, onProgress, {
     agent: 'Trace Writer',
     tool: 'write_trace',
     source: 'local_trace_store',
@@ -265,6 +304,25 @@ function addTraceWriterStep(traceSteps) {
     color: COLORS.agent,
     output: 'Persisted full agent workflow trace for reviewer inspection.',
     summary: 'Agent trace persisted.',
+  });
+}
+
+function recordStep(traceSteps, onProgress, step) {
+  traceSteps.push(step);
+  emitProgress(onProgress, step);
+}
+
+function emitProgress(onProgress, event) {
+  if (typeof onProgress !== 'function') return;
+  onProgress({
+    agent: event.agent,
+    tool: event.tool,
+    source: event.source || null,
+    status: event.status,
+    icon: event.icon,
+    color: event.color,
+    output: event.output,
+    summary: event.summary || event.output,
   });
 }
 
@@ -289,6 +347,7 @@ function buildClarificationResponse({ trace, intent, location, missingFields }) 
       dateFull: intent.dateFull,
       timeLabel: intent.timeText,
       timeWindowLabel: intent.timeWindowLabel,
+      providerSearch: intent.providerSearch,
       detectedLanguage: intent.detectedLanguage,
       confidence: Math.round(intent.confidence * 100),
     },
@@ -311,6 +370,7 @@ function buildNoMatchResponse({ trace, intent, location, discovery }) {
       dateFull: intent.dateFull,
       timeLabel: intent.timeText,
       timeWindowLabel: intent.timeWindowLabel,
+      providerSearch: intent.providerSearch,
       detectedLanguage: intent.detectedLanguage,
       confidence: Math.round(intent.confidence * 100),
     },
