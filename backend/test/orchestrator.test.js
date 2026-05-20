@@ -53,6 +53,19 @@ async function makeConfirmedBooking({ userId = `chat-user-${Date.now()}`, text =
   return bookingAgent.getBooking(result.booking.bookingId);
 }
 
+function proposedSlotOnBookingDate(booking, time) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Karachi',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date(booking.slot)).reduce((acc, part) => {
+    if (part.type !== 'literal') acc[part.type] = part.value;
+    return acc;
+  }, {});
+  return `${parts.year}-${parts.month}-${parts.day}T${time}:00+05:00`;
+}
+
 test.beforeEach(() => {
   process.env.TWILIO_FAKE_SEND = 'true';
   process.env.EXPO_PUSH_FAKE_SEND = 'true';
@@ -108,7 +121,10 @@ test('bookings and traces are persisted in local JSON store', async () => {
   });
 
   assert.equal(result.status, 'pending_user_confirmation');
-  assert.ok(bookingAgent.getBooking(result.booking.bookingId));
+  const booking = bookingAgent.getBooking(result.booking.bookingId);
+  assert.ok(booking);
+  assert.equal(booking.traceId, result.traceId);
+  assert.equal(result.booking.traceId, result.traceId);
   assert.ok(traceAgent.getTrace(result.traceId));
 });
 
@@ -861,11 +877,113 @@ test('inbound provider YES reply confirms booking and schedules reminder', async
     const booking = bookingAgent.getBooking(result.booking.bookingId);
     assert.equal(booking.status, 'confirmed');
     assert.equal(booking.providerResponseStatus, 'accepted');
+    assert.equal(booking.providerAcceptanceConfirmationSid, `SM_FAKE_PROVIDER_ACCEPT_CONFIRMATION_${booking.bookingId}`);
+    assert.equal(booking.providerAcceptanceConfirmationStatus, 'queued');
+    assert.match(booking.providerAcceptanceConfirmationBody, /Booking confirmed/);
+    assert.equal(booking.providerAcceptanceConfirmationError, null);
     assert.ok(booking.confirmedAt);
     const reminders = followUpAgent.getAllReminders().filter((reminder) => reminder.bookingId === booking.bookingId);
     assert.equal(reminders.length, 2);
     assert.ok(reminders.some((reminder) => reminder.recipientType === 'provider' && reminder.channel === 'twilio_whatsapp'));
     assert.ok(reminders.some((reminder) => reminder.recipientType === 'user' && reminder.channel === 'expo_push'));
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('bare provider accept button confirms latest active booking by stored provider phone', async () => {
+  const olderResult = await orchestrate({
+    userId: 'bare-button-provider-phone-old',
+    text: 'Need plumber in F-10 today evening',
+    cityHint: 'Islamabad',
+  });
+  await bookingAgent.confirmBooking(olderResult.booking.bookingId);
+  bookingAgent.updateBooking(olderResult.booking.bookingId, {
+    providerPhone: 'whatsapp:+15551234567',
+  }, 'Test provider phone override.');
+  bookingAgent.applyProviderResponse({
+    bookingId: olderResult.booking.bookingId,
+    intent: 'accepted',
+    message: 'YES',
+    from: 'whatsapp:+15551234567',
+    messageSid: 'SM_OLDER_ACCEPTED',
+    parser: 'test',
+  });
+
+  const result = await orchestrate({
+    userId: 'bare-button-provider-phone',
+    text: 'Need plumber in F-10 today evening',
+    cityHint: 'Islamabad',
+  });
+  await bookingAgent.confirmBooking(result.booking.bookingId);
+  bookingAgent.updateBooking(result.booking.bookingId, {
+    providerPhone: 'whatsapp:+15551234567',
+  }, 'Test provider phone override.');
+  const app = makeTestApp();
+  const { server, url } = await listen(app);
+
+  try {
+    const response = await fetch(`${url}/api/webhooks/twilio/whatsapp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        MessageSid: 'SM_BARE_ACCEPT_BUTTON',
+        From: 'whatsapp:+15551234567',
+        To: 'whatsapp:+15551111111',
+        Body: '',
+        ButtonPayload: 'Accept',
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    const olderBooking = bookingAgent.getBooking(olderResult.booking.bookingId);
+    assert.equal(olderBooking.status, 'confirmed');
+    const booking = bookingAgent.getBooking(result.booking.bookingId);
+    assert.equal(booking.status, 'confirmed');
+    assert.equal(booking.providerResponseStatus, 'accepted');
+    assert.ok(store.list('inboundMessages').some((message) =>
+      message.inboundMessageId === 'SM_BARE_ACCEPT_BUTTON' &&
+      message.bookingId === booking.bookingId &&
+      message.status.includes('latest_active')
+    ));
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('bare provider accept button confirms latest pending booking when provider phone does not match', async () => {
+  const result = await orchestrate({
+    userId: 'bare-button-single-pending',
+    text: 'Need plumber in F-10 today evening',
+    cityHint: 'Islamabad',
+  });
+  await bookingAgent.confirmBooking(result.booking.bookingId);
+  bookingAgent.updateBooking(result.booking.bookingId, {
+    providerPhone: 'whatsapp:+15550000000',
+  }, 'Keep stored provider phone different from inbound sender.');
+  const app = makeTestApp();
+  const { server, url } = await listen(app);
+
+  try {
+    const response = await fetch(`${url}/api/webhooks/twilio/whatsapp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        MessageSid: 'SM_BARE_ACCEPT_SINGLE_PENDING',
+        From: 'whatsapp:+923136991010',
+        To: 'whatsapp:+15551111111',
+        Body: 'accept',
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    const booking = bookingAgent.getBooking(result.booking.bookingId);
+    assert.equal(booking.status, 'confirmed');
+    assert.equal(booking.providerResponseStatus, 'accepted');
+    assert.ok(store.list('inboundMessages').some((message) =>
+      message.inboundMessageId === 'SM_BARE_ACCEPT_SINGLE_PENDING' &&
+      message.bookingId === booking.bookingId
+    ));
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
@@ -1074,7 +1192,7 @@ test('inbound provider NO reply rejects booking without scheduling reminder', as
   }
 });
 
-test('inbound reply without booking code is recorded as unmatched', async () => {
+test('non-decision inbound reply without booking code is recorded as unmatched', async () => {
   const app = makeTestApp();
   const { server, url } = await listen(app);
 
@@ -1086,7 +1204,7 @@ test('inbound reply without booking code is recorded as unmatched', async () => 
         MessageSid: 'SM_NO_CODE',
         From: 'whatsapp:+15559999999',
         To: 'whatsapp:+15551111111',
-        Body: 'yes I can come',
+        Body: 'what is the address?',
       }),
     });
 
@@ -1153,6 +1271,51 @@ test('provider reply with booking code creates provider chat message', async () 
   }
 });
 
+test('confirmed booking chat stays natural without LLM or assistant interjection', async () => {
+  const originalFetch = global.fetch;
+  process.env.GEMINI_API_KEY = 'test-key';
+  const booking = await makeConfirmedBooking({ userId: 'chat-user-no-llm' });
+  const app = makeTestApp();
+  const { server, url } = await listen(app);
+  global.fetch = async (input, init) => {
+    if (String(input).startsWith('https://generativelanguage.googleapis.com/')) {
+      throw new Error('LLM should not be called for confirmed booking chat');
+    }
+    return originalFetch(input, init);
+  };
+
+  try {
+    const userResponse = await fetch(`${url}/api/bookings/${booking.bookingId}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body: 'Please call before arriving.' }),
+    });
+    assert.equal(userResponse.status, 201);
+
+    const providerResponse = await fetch(`${url}/api/webhooks/twilio/whatsapp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        MessageSid: 'SM_PROVIDER_NATURAL_CHAT',
+        From: 'whatsapp:+15550000000',
+        To: 'whatsapp:+15551111111',
+        Body: `Please share the house number ${booking.bookingId}`,
+      }),
+    });
+    assert.equal(providerResponse.status, 200);
+
+    const messages = store.list('conversationMessages').filter((message) => message.bookingId === booking.bookingId);
+    assert.ok(messages.some((message) => message.senderType === 'user' && message.body === 'Please call before arriving.'));
+    assert.ok(messages.some((message) => message.senderType === 'provider' && message.body.includes('house number')));
+    assert.ok(!messages.some((message) => message.senderType === 'assistant'));
+    assert.ok(!store.list('conversationActions').some((action) => action.bookingId === booking.bookingId));
+  } finally {
+    global.fetch = originalFetch;
+    delete process.env.GEMINI_API_KEY;
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test('provider reply without booking code matches latest active booking from same sender', async () => {
   const booking = await makeConfirmedBooking({ userId: 'chat-user-provider-latest' });
   const app = makeTestApp();
@@ -1215,6 +1378,208 @@ test('provider proposed time creates pending reschedule action and assistant mes
       message.metadata.actionId === action.actionId
     ));
   } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('provider Roman Urdu time change creates pending reschedule action', async () => {
+  const originalFetch = global.fetch;
+  process.env.GEMINI_API_KEY = 'test-key';
+  const booking = await makeConfirmedBooking({ userId: 'chat-user-reschedule-roman-urdu' });
+  const app = makeTestApp();
+  const { server, url } = await listen(app);
+  const proposedSlot = proposedSlotOnBookingDate(booking, '15:00');
+  let geminiCalls = 0;
+
+  global.fetch = async (input, init) => {
+    if (String(input).startsWith('https://generativelanguage.googleapis.com/')) {
+      geminiCalls += 1;
+      return {
+        ok: true,
+        json: async () => ({
+          candidates: [{
+            content: {
+              parts: [{
+                text: JSON.stringify({
+                  type: 'reschedule_proposed',
+                  confidence: 0.94,
+                  proposedSlot,
+                  reason: 'time ko 3 bajy kr skty app?',
+                  assistantMessage: 'Provider proposed a new time.',
+                }),
+              }],
+            },
+          }],
+        }),
+      };
+    }
+    return originalFetch(input, init);
+  };
+
+  try {
+    const response = await fetch(`${url}/api/webhooks/twilio/whatsapp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        MessageSid: 'SM_PROVIDER_ROMAN_URDU_RESCHEDULE',
+        From: 'whatsapp:+15550000000',
+        To: 'whatsapp:+15551111111',
+        Body: `time ko 3 bajy kr skty app? ${booking.bookingId}`,
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(geminiCalls, 1);
+    const action = store.list('conversationActions').find((row) =>
+      row.bookingId === booking.bookingId &&
+      row.actionType === 'reschedule' &&
+      row.status === 'pending'
+    );
+    assert.ok(action);
+    assert.equal(action.proposedSlot, proposedSlot);
+    assert.ok(store.list('conversationMessages').some((message) =>
+      message.bookingId === booking.bookingId &&
+      message.senderType === 'assistant' &&
+      message.metadata.actionId === action.actionId
+    ));
+  } finally {
+    global.fetch = originalFetch;
+    delete process.env.GEMINI_API_KEY;
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('provider vague Roman Urdu time proposal uses LLM and approval updates booking time', async () => {
+  const originalFetch = global.fetch;
+  process.env.GEMINI_API_KEY = 'test-key';
+  const booking = await makeConfirmedBooking({ userId: 'chat-user-reschedule-roman-urdu-approval' });
+  const originalSlot = booking.slot;
+  const app = makeTestApp();
+  const { server, url } = await listen(app);
+  const proposedSlot = proposedSlotOnBookingDate(booking, '15:00');
+  let geminiCalls = 0;
+
+  global.fetch = async (input, init) => {
+    if (String(input).startsWith('https://generativelanguage.googleapis.com/')) {
+      geminiCalls += 1;
+      return {
+        ok: true,
+        json: async () => ({
+          candidates: [{
+            content: {
+              parts: [{
+                text: JSON.stringify({
+                  type: 'reschedule_proposed',
+                  confidence: 0.95,
+                  proposedSlot,
+                  reason: '3 bajy possible hai?',
+                  assistantMessage: 'Provider proposed a new time.',
+                }),
+              }],
+            },
+          }],
+        }),
+      };
+    }
+    return originalFetch(input, init);
+  };
+
+  try {
+    const response = await fetch(`${url}/api/webhooks/twilio/whatsapp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        MessageSid: 'SM_PROVIDER_ROMAN_URDU_VAGUE_RESCHEDULE',
+        From: 'whatsapp:+15550000000',
+        To: 'whatsapp:+15551111111',
+        Body: `3 bajy possible hai? ${booking.bookingId}`,
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(geminiCalls, 1);
+    const action = store.list('conversationActions').find((row) =>
+      row.bookingId === booking.bookingId &&
+      row.actionType === 'reschedule' &&
+      row.status === 'pending'
+    );
+    assert.ok(action);
+    assert.equal(action.proposedSlot, proposedSlot);
+
+    const approveResponse = await fetch(`${url}/api/bookings/${booking.bookingId}/actions/${action.actionId}/approve`, {
+      method: 'POST',
+    });
+    assert.equal(approveResponse.status, 200);
+
+    const updatedBooking = bookingAgent.getBooking(booking.bookingId);
+    assert.notEqual(updatedBooking.slot, originalSlot);
+    assert.equal(updatedBooking.slot, new Date(proposedSlot).toISOString());
+    assert.equal(updatedBooking.lifecycleStatus, 'rescheduled_by_user_approval');
+    assert.ok(updatedBooking.slotLabel.toLowerCase().includes('3:00 pm'));
+  } finally {
+    global.fetch = originalFetch;
+    delete process.env.GEMINI_API_KEY;
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test('action-like provider chat can use LLM fallback without touching plain chat', async () => {
+  const originalFetch = global.fetch;
+  process.env.GEMINI_API_KEY = 'test-key';
+  const booking = await makeConfirmedBooking({ userId: 'chat-user-reschedule-llm-fallback' });
+  const app = makeTestApp();
+  const { server, url } = await listen(app);
+  let geminiCalls = 0;
+
+  global.fetch = async (input, init) => {
+    if (String(input).startsWith('https://generativelanguage.googleapis.com/')) {
+      geminiCalls += 1;
+      return {
+        ok: true,
+        json: async () => ({
+          candidates: [{
+            content: {
+              parts: [{
+                text: JSON.stringify({
+                  type: 'reschedule_proposed',
+                  confidence: 0.91,
+                  proposedSlot: 'kal shaam',
+                  reason: 'kal shaam mumkin hai?',
+                  assistantMessage: 'Provider proposed a new time.',
+                }),
+              }],
+            },
+          }],
+        }),
+      };
+    }
+    return originalFetch(input, init);
+  };
+
+  try {
+    const response = await fetch(`${url}/api/webhooks/twilio/whatsapp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        MessageSid: 'SM_PROVIDER_LLM_RESCHEDULE',
+        From: 'whatsapp:+15550000000',
+        To: 'whatsapp:+15551111111',
+        Body: `kal shaam mumkin hai? ${booking.bookingId}`,
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(geminiCalls, 1);
+    const action = store.list('conversationActions').find((row) =>
+      row.bookingId === booking.bookingId &&
+      row.actionType === 'reschedule' &&
+      row.status === 'pending'
+    );
+    assert.ok(action);
+    assert.equal(action.proposedSlot, 'kal shaam');
+  } finally {
+    global.fetch = originalFetch;
+    delete process.env.GEMINI_API_KEY;
     await new Promise((resolve) => server.close(resolve));
   }
 });

@@ -7,7 +7,6 @@ import {
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import Svg, { Circle, Defs, LinearGradient, Stop, Rect } from 'react-native-svg';
 import TopBar from '../src/components/TopBar';
-import BottomNav from '../src/components/BottomNav';
 import MCard from '../src/components/MCard';
 import Avatar from '../src/components/Avatar';
 import Pill from '../src/components/Pill';
@@ -647,7 +646,6 @@ export default function RecommendationScreen() {
             : isAiPick ? 'Confirm booking' : `Book ${name?.split(' ')[0] || 'this provider'}`}
         </AccentBtn>
       </View>
-      <BottomNav />
     </View>
   );
 }

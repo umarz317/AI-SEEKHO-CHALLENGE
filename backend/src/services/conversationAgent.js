@@ -91,6 +91,9 @@ async function classifyWithGemini({ text, source = 'provider', booking }) {
             'Return JSON only.',
             'Allowed type values: plain_message, reschedule_proposed, cancel_requested, needs_user_reply, unknown.',
             'Reschedule and cancel actions require user approval before changing the booking.',
+            'For reschedule_proposed, resolve the proposedSlot into an ISO 8601 datetime with timezone when the booking date is known.',
+            'If the provider says an hour without am/pm, infer the most likely future time on the booking date using the existing booking slot as context.',
+            'Example: booking is 12:00 PM and provider says "3 bajy possible hai?" -> proposedSlot should be 3:00 PM on the booking date.',
             `Message source: ${source}`,
             `Booking: ${JSON.stringify({
               bookingId: booking?.bookingId,

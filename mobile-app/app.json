@@ -19,6 +19,9 @@
       "icon": "./assets/icon.png",
       "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        },
         "CFBundleURLTypes": [
           {
             "CFBundleURLSchemes": [

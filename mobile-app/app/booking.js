@@ -3,7 +3,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, Easing, ActivityIndicator, Linking, RefreshControl, View, Text, ScrollView, TouchableOpacity } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import TopBar from '../src/components/TopBar';
-import BottomNav from '../src/components/BottomNav';
 import MCard from '../src/components/MCard';
 import Avatar from '../src/components/Avatar';
 import Ic from '../src/components/Ic';
@@ -89,6 +88,21 @@ function statusConfig(status) {
   };
 }
 
+function providerResponseRow(booking) {
+  if (booking.providerResponseStatus === 'accepted') {
+    return { icon: 'check', label: 'Provider response', val: 'Accepted your booking' };
+  }
+  if (booking.providerResponseStatus === 'rejected') {
+    return { icon: 'alarm', label: 'Provider response', val: 'Declined this request' };
+  }
+
+  const raw = String(booking.providerResponseMessage || '').trim();
+  if (!raw || /^(accept|accepted|yes|confirm|confirmed|reject|rejected|decline|declined|no)$/i.test(raw)) {
+    return null;
+  }
+  return { icon: 'msg', label: 'Provider message', val: raw };
+}
+
 export default function BookingScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
@@ -107,6 +121,9 @@ export default function BookingScreen() {
   const gradient = p.gradient || ['#10B981', '#047857'];
   const config = statusConfig(b.status);
   const reminderTime = b.reminderTimeLabel || (b.reminderTime ? formatSlot(b.reminderTime) : 'After provider accepts');
+  const responseRow = providerResponseRow(b);
+  const traceStepCount = apiResult?.trace?.length || b.traceSummary?.length || 0;
+  const hasTrace = Boolean(apiResult?.trace?.length || b.traceId);
   const openMaps = () => {
     if (p.googleMapsUri) Linking.openURL(p.googleMapsUri);
   };
@@ -142,9 +159,12 @@ export default function BookingScreen() {
     const events = apiResult?.trace || [];
     router.push({
       pathname: '/trace',
-      params: { trace: JSON.stringify(events) },
+      params: {
+        trace: JSON.stringify(events),
+        traceId: b.traceId || apiResult?.traceId || '',
+      },
     });
-  }, [apiResult, router]);
+  }, [apiResult, b.traceId, router]);
 
   const openChat = useCallback(() => {
     if (!b.bookingId) return;
@@ -284,7 +304,7 @@ export default function BookingScreen() {
             { icon: 'pin',   label: 'Location',   val: b.location || '—' },
             { icon: 'flow',  label: 'Booking ID', val: b.bookingId || '—', mono: true },
             { icon: 'alarm', label: 'Reminder',   val: b.status === 'confirmed' ? `${reminderTime} (1 hr before)` : reminderTime },
-            ...(b.providerResponseMessage ? [{ icon: 'msg', label: 'Provider reply', val: b.providerResponseMessage }] : []),
+            ...(responseRow ? [responseRow] : []),
           ].map((r, i, arr) => (
             <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, paddingHorizontal: 16, borderBottomWidth: i < arr.length - 1 ? 1 : 0, borderBottomColor: M.divider }}>
               <View style={{
@@ -334,7 +354,7 @@ export default function BookingScreen() {
               Confirm Booking
             </FilledBtn>
           )}
-          {!!(apiResult?.trace?.length) && (
+          {hasTrace && (
             <TouchableOpacity
               onPress={openTrace}
               activeOpacity={0.82}
@@ -352,14 +372,13 @@ export default function BookingScreen() {
             >
               <Ic name="flow" size={16} color={M.text} weight={2.2} />
               <Text style={{ fontSize: 14, fontWeight: '700', color: M.text }}>
-                View agent trace · {apiResult.trace.length} steps
+                View agent trace{traceStepCount ? ` · ${traceStepCount} steps` : ''}
               </Text>
             </TouchableOpacity>
           )}
           <OutlinedBtn onPress={() => router.replace('/')}>Start another request</OutlinedBtn>
         </View>
       </ScrollView>
-      <BottomNav />
     </View>
   );
 }

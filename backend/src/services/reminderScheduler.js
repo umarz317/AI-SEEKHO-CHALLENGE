@@ -1,10 +1,13 @@
+const cron = require('node-cron');
 const bookingAgent = require('../agents/bookingAgent');
 const store = require('../storage/localStore');
 const { sendProviderReminder } = require('./providerMessaging');
 const { sendUserReminderPush } = require('./pushNotifications');
 
-const DEFAULT_SCAN_INTERVAL_MS = 30 * 1000;
-let interval = null;
+// Default: every 30 seconds  ──  "*/30 * * * * *"
+// Override via env: REMINDER_CRON="0 * * * * *" (every minute)
+const DEFAULT_CRON = '*/30 * * * * *';
+let task = null;
 let running = false;
 
 function notificationIdForReminder(reminderId) {
@@ -90,10 +93,17 @@ async function processDueReminders(now = new Date()) {
   return results;
 }
 
-function startReminderScheduler({ intervalMs = DEFAULT_SCAN_INTERVAL_MS } = {}) {
-  if (interval) return interval;
+function startReminderScheduler({ cronExpression = process.env.REMINDER_CRON || DEFAULT_CRON } = {}) {
+  if (task) return task;
 
-  const tick = async () => {
+  if (!cron.validate(cronExpression)) {
+    console.error(`[reminder:scheduler] Invalid cron expression: "${cronExpression}". Falling back to default: "${DEFAULT_CRON}"`);
+    cronExpression = DEFAULT_CRON;
+  }
+
+  console.log(`[reminder:scheduler] Starting with cron: "${cronExpression}"`);
+
+  task = cron.schedule(cronExpression, async () => {
     if (running) return;
     running = true;
     try {
@@ -103,17 +113,15 @@ function startReminderScheduler({ intervalMs = DEFAULT_SCAN_INTERVAL_MS } = {}) 
     } finally {
       running = false;
     }
-  };
+  });
 
-  tick();
-  interval = setInterval(tick, intervalMs);
-  return interval;
+  return task;
 }
 
 function stopReminderScheduler() {
-  if (!interval) return;
-  clearInterval(interval);
-  interval = null;
+  if (!task) return;
+  task.stop();
+  task = null;
 }
 
 module.exports = {
@@ -123,3 +131,4 @@ module.exports = {
   startReminderScheduler,
   stopReminderScheduler,
 };
+

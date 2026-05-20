@@ -10,7 +10,6 @@ import {
 } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import TopBar from '../src/components/TopBar';
-import BottomNav from '../src/components/BottomNav';
 import MCard from '../src/components/MCard';
 import Avatar from '../src/components/Avatar';
 import Ic from '../src/components/Ic';
@@ -224,7 +223,6 @@ export default function BookingsScreen() {
         )}
       </ScrollView>
 
-      <BottomNav active="history" />
     </View>
   );
 }

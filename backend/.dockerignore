@@ -1,0 +1,31 @@
+# ── Node ──────────────────────────────────────
+node_modules/
+
+# ── Runtime / state files ─────────────────────
+runtime/
+
+# ── Environment (never bake secrets into image) ─
+.env
+.env.*
+.env.local
+.env.production
+.env.production.local
+
+# ── Tests ─────────────────────────────────────
+test/
+
+# ── Dev tooling ───────────────────────────────
+nodemon.json
+.DS_Store
+*.log
+npm-debug.log*
+pnpm-lock.yaml
+
+# ── Git / editor ──────────────────────────────
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# ── Deployment scripts (not needed in image) ──
+deploy.sh

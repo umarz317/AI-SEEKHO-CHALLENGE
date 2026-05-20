@@ -43,6 +43,56 @@ function safeIcon(name) {
   return KNOWN_ICONS.has(name) ? name : 'sparkle';
 }
 
+// Human-friendly labels for raw backend identifiers.
+const TOOL_LABELS = {
+  parse_request:           'Parsing your request',
+  resolve_location:        'Resolving location',
+  request_missing_details: 'Asking for missing details',
+  find_providers:          'Searching providers',
+  rank_providers:          'Ranking providers',
+  create_booking:          'Creating booking',
+  write_trace:             'Saving trace',
+  start_job:               'Starting job',
+  finish_job:              'Finishing job',
+  fail_job:                'Job failed',
+};
+
+const SOURCE_LABELS = {
+  google_intent:        'Google Gemini',
+  gemini:               'Google Gemini',
+  openai:               'OpenAI',
+  google_places:        'Google Places',
+  google_geocoding:     'Google Geocoding',
+  google_location:      'Google Maps',
+  orchestrator_policy:  'Workflow rules',
+  api_job_runner:       'Backend runner',
+  local_booking_store:  'Booking service',
+  mock:                 'Mock data',
+  mock_intent:          'Mock intent',
+  mock_location:        'Mock location',
+  mock_provider:        'Mock providers',
+};
+
+function humanize(raw) {
+  if (raw == null) return '';
+  const s = String(raw).trim();
+  if (!s) return '';
+  return s
+    .replace(/[_\-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function labelTool(tool) {
+  if (!tool) return '';
+  return TOOL_LABELS[tool] || humanize(tool);
+}
+
+function labelSource(source) {
+  if (!source) return '';
+  return SOURCE_LABELS[source] || humanize(source);
+}
+
 function formatElapsed(ms) {
   if (!ms || ms < 0) return '0.0s';
   const s = ms / 1000;
@@ -74,7 +124,7 @@ function extractChips(event) {
       if (chips.length >= 3) break;
     }
   }
-  if (!chips.length && event?.source) chips.push({ label: 'Source', value: String(event.source) });
+  if (!chips.length && event?.source) chips.push({ label: 'Via', value: labelSource(event.source) });
   return chips;
 }
 
@@ -126,6 +176,11 @@ export default function LoadingScreen() {
   const progressAnim = useRef(new Animated.Value(0)).current;
   const scrollRef = useRef(null);
   const stepStartRef = useRef({}); // first-seen timestamp per agent
+  const startedRef = useRef(null); // guards against double-starting the backend job
+  const routerRef = useRef(router);
+  routerRef.current = router;
+  const destRef = useRef(dest);
+  destRef.current = dest;
 
   // ----- Animations -----
   useEffect(() => {
@@ -158,6 +213,13 @@ export default function LoadingScreen() {
 
   // ----- Job lifecycle -----
   useEffect(() => {
+    // Guard against duplicate starts: same (apiData|query, attempt) must only run once.
+    // React strict-mode double-mounts and any extra re-renders would otherwise fire a
+    // second backend job and insert a duplicate booking.
+    const runKey = `${apiData ? `api:${apiData.length}` : `q:${query}`}::${attempt}`;
+    if (startedRef.current === runKey) return;
+    startedRef.current = runKey;
+
     let active = true;
     let pollId = null;
     let navigateId = null;
@@ -171,11 +233,11 @@ export default function LoadingScreen() {
         setStatus('complete');
         navigateId = setTimeout(() => {
           if (!active) return;
-          router.replace({
-            pathname: `/${dest || 'understanding'}`,
+          routerRef.current.replace({
+            pathname: `/${destRef.current || 'understanding'}`,
             params: { apiData, query },
           });
-        }, 700);
+        }, 1600);
         return;
       }
 
@@ -207,11 +269,11 @@ export default function LoadingScreen() {
               const serialized = JSON.stringify(nextJob.result);
               navigateId = setTimeout(() => {
                 if (!active) return;
-                router.replace({
-                  pathname: `/${dest || 'understanding'}`,
+                routerRef.current.replace({
+                  pathname: `/${destRef.current || 'understanding'}`,
                   params: { apiData: serialized, query },
                 });
-              }, 900);
+              }, 1800);
             }
 
             if (nextJob.status === 'failed') {
@@ -241,7 +303,7 @@ export default function LoadingScreen() {
       if (pollId) clearInterval(pollId);
       if (navigateId) clearTimeout(navigateId);
     };
-  }, [apiData, city, dest, query, router, attempt]);
+  }, [apiData, city, query, attempt]);
 
   // ----- Timing per step (recorded on first appearance) -----
   useEffect(() => {
@@ -322,15 +384,15 @@ export default function LoadingScreen() {
       const key = `${event.agent}::${event.tool || ''}::${i}`;
       const stamp = stepStartRef.current[`${event.agent}::${event.tool || ''}`];
       const durationMs = stamp ? now - stamp : null;
-      const detailText = typeof event.summary === 'string'
+      const detailText = typeof event.summary === 'string' && event.summary
         ? event.summary
-        : typeof event.output === 'string'
+        : typeof event.output === 'string' && event.output
         ? event.output
-        : event.source || '';
+        : labelSource(event.source);
       return {
         key,
         agent: event.agent,
-        description: AGENT_DESCRIPTION[event.agent] || event.tool || event.source || '',
+        description: AGENT_DESCRIPTION[event.agent] || labelTool(event.tool) || labelSource(event.source),
         detail: detailText,
         chips: extractChips(event),
         status: event.status,
@@ -348,6 +410,7 @@ export default function LoadingScreen() {
     setError(null);
     setElapsed(0);
     stepStartRef.current = {};
+    startedRef.current = null;
     setStatus('running');
     setAttempt((n) => n + 1);
   };
@@ -356,34 +419,33 @@ export default function LoadingScreen() {
     <View style={{ flex: 1, backgroundColor: M.bg }}>
       {/* Sticky header: orb + title + progress (stays put while list scrolls) */}
       <View style={{
-        paddingTop: insets.top + 28,
+        paddingTop: insets.top + 14,
         paddingHorizontal: 18,
-        paddingBottom: 14,
+        paddingBottom: 12,
         backgroundColor: M.bg,
         borderBottomWidth: 1,
         borderBottomColor: M.divider,
         zIndex: 2,
       }}>
-        {/* Orb */}
-        <View style={{ alignItems: 'center', marginBottom: 18 }}>
-          <View style={{ position: 'relative', width: 112, height: 112, alignItems: 'center', justifyContent: 'center' }}>
-            {/* Outer pulse halo (only while running) */}
+        {/* Compact header row: orb on the left, title/subtitle on the right */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 14 }}>
+          {/* Orb (smaller, inline) */}
+          <View style={{ position: 'relative', width: 64, height: 64, alignItems: 'center', justifyContent: 'center' }}>
             {status === 'running' && (
               <Animated.View
                 pointerEvents="none"
                 style={{
                   position: 'absolute',
-                  width: 112, height: 112, borderRadius: 56,
+                  width: 64, height: 64, borderRadius: 32,
                   backgroundColor: M.accentSoft,
                   opacity: pulseOpacity,
                   transform: [{ scale: pulseScale }],
                 }}
               />
             )}
-            {/* Spinning ring */}
             <Animated.View style={{
-              width: 96, height: 96, borderRadius: 48,
-              borderWidth: 3,
+              width: 56, height: 56, borderRadius: 28,
+              borderWidth: 2.5,
               borderColor: status === 'error' ? M.error : M.accent,
               borderTopColor: status === 'error' ? '#FCA5A5' : M.agent,
               borderRightColor: status === 'error' ? '#FCA5A5' : M.purple,
@@ -391,37 +453,43 @@ export default function LoadingScreen() {
               alignItems: 'center', justifyContent: 'center',
             }}>
               <View style={{
-                width: 82, height: 82, borderRadius: 41,
+                width: 46, height: 46, borderRadius: 23,
                 backgroundColor: M.surface,
                 alignItems: 'center', justifyContent: 'center',
-                shadowColor: '#0F172A', shadowOpacity: 0.06, shadowRadius: 12, shadowOffset: { width: 0, height: 4 },
+                shadowColor: '#0F172A', shadowOpacity: 0.06, shadowRadius: 8, shadowOffset: { width: 0, height: 2 },
               }}>
                 <Ic
                   name={status === 'complete' ? 'check' : status === 'error' ? 'bell' : 'sparkle'}
-                  size={34}
-                  color={status === 'error' ? M.error : M.accentDeep}
-                  fill={status !== 'error'}
+                  size={22}
+                  color={status === 'error' ? M.error : status === 'complete' ? M.success : M.accentDeep}
+                  // Only the sparkle (running) is fill-friendly. The Lucide
+                  // check and bell are stroke-only paths and look broken
+                  // (paper-plane shape) when filled.
+                  fill={status !== 'error' && status !== 'complete'}
+                  weight={status === 'complete' ? 3 : 1.75}
                 />
               </View>
             </Animated.View>
           </View>
-        </View>
 
-        {/* Title + subtitle */}
-        <Text style={{
-          fontSize: 20, fontWeight: '700', color: M.text,
-          textAlign: 'center', letterSpacing: -0.3, marginBottom: 4,
-        }}>
-          {titleText}
-        </Text>
-        <View style={{
-          flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-          marginBottom: 18, paddingHorizontal: 16,
-        }}>
-          <Text style={{ fontSize: 13, color: M.textMute, textAlign: 'center' }} numberOfLines={2}>
-            {subtitleText}
-          </Text>
-          {status === 'running' && <ThinkingDots color={M.accent} />}
+          {/* Title + subtitle stacked next to the orb */}
+          <View style={{ flex: 1 }}>
+            <Text style={{
+              fontSize: 18, fontWeight: '700', color: M.text,
+              letterSpacing: -0.3, marginBottom: 2,
+            }} numberOfLines={1}>
+              {titleText}
+            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Text
+                style={{ fontSize: 12.5, color: M.textMute, flex: 1 }}
+                numberOfLines={2}
+              >
+                {subtitleText}
+              </Text>
+              {status === 'running' && <ThinkingDots color={M.accent} />}
+            </View>
+          </View>
         </View>
 
         {/* Progress bar */}
@@ -531,94 +599,127 @@ function StepCard({ item, pulseOpacity }) {
   const lineColor = isDone || isFailed ? item.color : M.divider;
   const lineOpacity = isDone || isFailed ? 0.6 : 1;
 
+  // Entrance animation — fades + slides up on first mount.
+  const enter = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(enter, {
+      toValue: 1,
+      duration: 320,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, []);
+  const enterOpacity = enter;
+  const enterTranslate = enter.interpolate({ inputRange: [0, 1], outputRange: [8, 0] });
+
+  const stepNumber = (item.index ?? 0) + 1;
+  const cardBg = isRunning
+    ? `${item.color}0D`           // 5% tinted bg on running
+    : isFailed
+    ? '#FEF2F2'
+    : isDone
+    ? M.surface
+    : M.surface;
+
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'stretch', gap: 12 }}>
-      {/* Timeline rail column — single continuous line with the icon disc on top */}
-      <View style={{ width: 34, alignItems: 'center' }}>
-        {/* Continuous vertical line spanning the full row height */}
-        <View
-          pointerEvents="none"
-          style={{
-            position: 'absolute',
-            top: item.index === 0 ? 22 : 0,
-            bottom: item.isLast ? '50%' : 0,
-            width: 2,
-            backgroundColor: lineColor,
-            opacity: lineOpacity,
-          }}
-        />
-
-        {/* Spacer to push the icon disc down to its anchor point */}
-        <View style={{ height: 10 }} />
-
-        {/* Icon disc */}
-        <View style={{ width: 34, height: 34, position: 'relative' }}>
+    <Animated.View
+      style={{
+        marginBottom: 10,
+        borderRadius: 16,
+        backgroundColor: cardBg,
+        borderWidth: 1,
+        borderColor: isRunning ? item.color : isFailed ? '#FECACA' : M.divider,
+        paddingHorizontal: 14,
+        paddingVertical: 12,
+        shadowColor: isRunning ? item.color : 'transparent',
+        shadowOpacity: isRunning ? 0.18 : 0,
+        shadowRadius: 14,
+        shadowOffset: { width: 0, height: 4 },
+        opacity: enterOpacity,
+        transform: [{ translateY: enterTranslate }],
+      }}
+    >
+      {/* Header row: icon + step number + agent + duration + status pill */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: !!item.description || !!item.detail ? 8 : 0 }}>
+        {/* Icon disc with optional running pulse */}
+        <View style={{ width: 36, height: 36, position: 'relative' }}>
           {isRunning && (
             <Animated.View
               pointerEvents="none"
               style={{
                 position: 'absolute', top: 0, left: 0,
-                width: 34, height: 34, borderRadius: 17,
+                width: 36, height: 36, borderRadius: 18,
                 backgroundColor: item.color,
                 opacity: pulseOpacity,
               }}
             />
           )}
           <View style={{
-            width: 34, height: 34, borderRadius: 17,
-            backgroundColor: isFailed ? '#FEE2E2' : isRunning ? item.color : isDone ? item.color : M.surface,
-            borderWidth: isRunning || isDone ? 0 : 1.5,
-            borderColor: isRunning || isDone ? 'transparent' : lineColor,
+            width: 36, height: 36, borderRadius: 18,
+            backgroundColor: isFailed ? '#FEE2E2' : isRunning ? item.color : isDone ? item.color : M.surfaceLow,
+            borderWidth: isRunning || isDone || isFailed ? 0 : 1.5,
+            borderColor: M.divider,
             alignItems: 'center', justifyContent: 'center',
           }}>
             <Ic
               name={isDone ? 'check' : item.icon}
-              size={isDone ? 14 : 16}
+              size={isDone ? 16 : 18}
               color={isRunning || isDone ? '#fff' : isFailed ? M.error : item.color}
               weight={isDone ? 3 : 2}
             />
           </View>
         </View>
-      </View>
 
-      {/* Card body */}
-      <View style={{
-        flex: 1,
-        marginVertical: 4,
-        paddingHorizontal: 12, paddingVertical: 11, borderRadius: 14,
-        backgroundColor: isRunning ? M.surface : isFailed ? '#FEF2F2' : M.surface,
-        borderWidth: 1,
-        borderColor: isRunning ? item.color : isFailed ? '#FECACA' : M.divider,
-        shadowColor: isRunning ? item.color : 'transparent',
-        shadowOpacity: isRunning ? 0.18 : 0,
-        shadowRadius: 12,
-        shadowOffset: { width: 0, height: 4 },
-      }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+        {/* Agent name + step number */}
+        <View style={{ flex: 1 }}>
           <Text style={{
-            flex: 1, fontSize: 14, fontWeight: '700', color: M.text, letterSpacing: -0.1,
+            fontSize: 10, fontWeight: '700', color: M.textDim,
+            letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 1,
+          }}>
+            Step {String(stepNumber).padStart(2, '0')}
+          </Text>
+          <Text style={{
+            fontSize: 15, fontWeight: '700', color: M.text, letterSpacing: -0.2,
           }} numberOfLines={1}>
             {item.agent}
           </Text>
+        </View>
+
+        {/* Duration + status pill */}
+        <View style={{ alignItems: 'flex-end', gap: 4 }}>
           <View style={{
-            paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6,
+            paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6,
             backgroundColor: meta.bg,
+            flexDirection: 'row', alignItems: 'center', gap: 4,
           }}>
+            {isRunning && (
+              <View style={{
+                width: 5, height: 5, borderRadius: 2.5, backgroundColor: meta.color,
+              }} />
+            )}
             <Text style={{ fontSize: 10, fontWeight: '700', color: meta.color, letterSpacing: 0.2 }}>
               {meta.label.toUpperCase()}
             </Text>
           </View>
+          {item.durationMs != null && !isRunning && (
+            <Text style={{ fontSize: 10.5, color: M.textDim, fontWeight: '600' }}>
+              {formatElapsed(item.durationMs)}
+            </Text>
+          )}
         </View>
-        {!!item.description && (
-          <Text style={{ fontSize: 12, color: M.textMute, fontWeight: '500', marginBottom: 2 }} numberOfLines={1}>
-            {item.description}
-          </Text>
-        )}
-        {!!item.detail && (
-          <Text style={{ fontSize: 11.5, color: M.textDim, lineHeight: 16 }} numberOfLines={3}>
-            {item.detail}
-          </Text>
-        )}
+      </View>
+
+      {/* Description + detail */}
+      {!!item.description && (
+        <Text style={{ fontSize: 12.5, color: M.text, fontWeight: '600', marginBottom: !!item.detail ? 2 : 0 }} numberOfLines={1}>
+          {item.description}
+        </Text>
+      )}
+      {!!item.detail && (
+        <Text style={{ fontSize: 11.5, color: M.textMute, lineHeight: 16 }} numberOfLines={3}>
+          {item.detail}
+        </Text>
+      )}
 
         {/* Extracted-data chips */}
         {!!item.chips?.length && (
@@ -650,14 +751,7 @@ function StepCard({ item, pulseOpacity }) {
             ))}
           </View>
         )}
-
-        {item.durationMs != null && !isRunning && (
-          <Text style={{ fontSize: 10, color: M.textDim, marginTop: 6, fontWeight: '600' }}>
-            {formatElapsed(item.durationMs)}
-          </Text>
-        )}
-      </View>
-    </View>
+    </Animated.View>
   );
 }
 

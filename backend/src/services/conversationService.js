@@ -149,17 +149,17 @@ async function sendUserMessage(bookingId, body, userId) {
 
   let pendingAction = null;
   try {
-    const classification = await classifyConversationMessage({
+    const classification = await classifyActionMessage({
       text: body,
       source: 'user',
       booking,
-    }).catch(() => null);
+    });
 
     updateMessage(message.messageId, {
       metadata: { classification },
     });
 
-    if (classification?.type === 'reschedule_proposed') {
+    if (classification.type === 'reschedule_proposed') {
       pendingAction = createAction({
         booking,
         actionType: 'reschedule',
@@ -216,19 +216,11 @@ async function handleProviderInbound({ booking, inbound, parsed, classify = true
   });
   if (providerDecisionResult) return providerDecisionResult;
 
-  const classification = await classifyConversationMessage({
+  const classification = await classifyActionMessage({
     text: inbound.body,
     source: 'provider',
     booking,
-  }).catch((err) => ({
-    type: 'unknown',
-    confidence: 0,
-    proposedSlot: null,
-    reason: inbound.body,
-    assistantMessage: 'Provider sent a message that needs your reply.',
-    parser: 'fallback',
-    error: err.message,
-  }));
+  });
 
   updateMessage(providerMessage.messageId, {
     metadata: { classification },
@@ -258,19 +250,123 @@ async function handleProviderInbound({ booking, inbound, parsed, classify = true
     return { message: providerMessage, classification, action };
   }
 
-  if (classification.type === 'needs_user_reply' && classification.assistantMessage) {
-    addMessage({
-      booking,
-      senderType: 'assistant',
-      channel: 'in_app',
-      body: classification.assistantMessage,
-      direction: 'internal',
-      status: 'sent',
-      metadata: { sourceMessageId: providerMessage.messageId, classification },
-    });
+  return { message: providerMessage, classification, action: null };
+}
+
+async function classifyActionMessage({ text, source = 'provider', booking }) {
+  const ruleClassification = classifyActionMessageWithRules({ text, source });
+  const shouldAskLlm =
+    shouldUseLlmActionFallback(text) &&
+    (
+      ruleClassification.type === 'plain_message' ||
+      (
+        ruleClassification.type === 'reschedule_proposed' &&
+        !isConcreteProposedSlot(ruleClassification.proposedSlot)
+      )
+    );
+
+  if (!shouldAskLlm) {
+    return ruleClassification;
   }
 
-  return { message: providerMessage, classification, action: null };
+  const llmClassification = await classifyConversationMessage({ text, source, booking }).catch(() => null);
+  return normalizeActionClassification(llmClassification, ruleClassification, source);
+}
+
+function classifyActionMessageWithRules({ text, source = 'provider' }) {
+  const body = String(text || '').trim();
+  const proposedSlot = extractProposedSlot(body);
+
+  if (isCancelRequest(body)) {
+    return {
+      type: 'cancel_requested',
+      confidence: 0.9,
+      proposedSlot: null,
+      reason: body,
+      assistantMessage: source === 'provider'
+        ? 'Provider is asking to cancel this booking. Please approve only if you want to close it.'
+        : 'Cancellation requested. Please confirm before the provider is notified.',
+      parser: 'rules',
+    };
+  }
+
+  if (isRescheduleRequest(body, proposedSlot)) {
+    return {
+      type: 'reschedule_proposed',
+      confidence: proposedSlot ? 0.9 : 0.75,
+      proposedSlot: proposedSlot || body,
+      reason: body,
+      assistantMessage: source === 'provider'
+        ? `Provider proposed a new time: ${proposedSlot || body}.`
+        : `Waiting for provider confirmation for ${proposedSlot || body}.`,
+      parser: 'rules',
+    };
+  }
+
+  return {
+    type: 'plain_message',
+    confidence: 1,
+    proposedSlot: null,
+    reason: body,
+    assistantMessage: null,
+    parser: 'rules',
+  };
+}
+
+function normalizeActionClassification(classification, fallback, source) {
+  if (!classification || !['reschedule_proposed', 'cancel_requested'].includes(classification.type)) {
+    return fallback;
+  }
+
+  const reason = classification.reason || fallback.reason;
+  const proposedSlot = classification.type === 'reschedule_proposed'
+    ? classification.proposedSlot || fallback.proposedSlot || reason
+    : null;
+
+  return {
+    type: classification.type,
+    confidence: classification.confidence || 0.7,
+    proposedSlot,
+    reason,
+    assistantMessage: classification.type === 'reschedule_proposed'
+      ? (source === 'provider'
+        ? `Provider proposed a new time: ${proposedSlot || reason}.`
+        : `Waiting for provider confirmation for ${proposedSlot || reason}.`)
+      : (source === 'provider'
+        ? 'Provider is asking to cancel this booking. Please approve only if you want to close it.'
+        : 'Cancellation requested. Please confirm before the provider is notified.'),
+    parser: classification.parser || 'gemini',
+  };
+}
+
+function shouldUseLlmActionFallback(text) {
+  const body = String(text || '').toLowerCase();
+  if (!body.trim()) return false;
+  return /\b(kal|aaj|aj|shaam|sham|subah|dopahar|raat|bajy|baje|bajay|late|delay|possible|mumkin|hosakta|ho sakta|kar skty|kr skty|kar sakte|kr sakte|instead|later|earlier|tomorrow|today|evening|morning|afternoon|tonight)\b/i.test(body);
+}
+
+function isConcreteProposedSlot(value) {
+  const text = String(value || '').trim();
+  return /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(text) ||
+    /\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i.test(text);
+}
+
+function isCancelRequest(text) {
+  return /\b(cancel|cancelled|canceled|can't come|cannot come|not coming|sorry.*cannot|sorry.*can't)\b/i.test(text);
+}
+
+function isRescheduleRequest(text, proposedSlot) {
+  if (proposedSlot) return true;
+  return /\b(reschedule|change (?:the )?time|move (?:it|this|the booking)|different time|another time)\b/i.test(text) ||
+    /\btime\s+ko\b.*\b(?:kar|kr|kard|karde|kardo|karna|set|change)\b/i.test(text);
+}
+
+function extractProposedSlot(text) {
+  const body = String(text || '');
+  const iso = body.match(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?(?:[+-]\d{2}:\d{2}|Z)?/);
+  if (iso) return iso[0];
+  const explicitTime = body.match(/\b(?:today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday)?\s*(?:at\s*)?\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i);
+  return explicitTime ? explicitTime[0].trim() : null;
 }
 
 async function approveAction(bookingId, actionId) {
@@ -480,15 +576,48 @@ function skipScheduledReminders(bookingId, reason) {
   }
 }
 
-function matchLatestActiveBookingByProvider(from) {
+function matchLatestActiveBookingByProvider(from, options = {}) {
   const normalizedFrom = normalizeWhatsAppNumber(from);
-  const configuredProvider = normalizeWhatsAppNumber(process.env.PROVIDER_TEST_WHATSAPP_TO);
-  if (!normalizedFrom || !configuredProvider || normalizedFrom !== configuredProvider) return null;
+  if (!normalizedFrom) return null;
 
-  return store
+  const activeBookings = store
     .list('bookings')
     .filter((booking) => ACTIVE_BOOKING_STATUSES.has(booking.status))
+    .sort((a, b) => String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt)));
+
+  const preferredStatuses = Array.isArray(options.preferredStatuses)
+    ? new Set(options.preferredStatuses)
+    : null;
+
+  const providerMatches = activeBookings.filter((booking) =>
+    normalizeWhatsAppNumber(booking.providerPhone) === normalizedFrom
+  );
+  const directProviderMatch = preferredStatuses?.size
+    ? providerMatches.find((booking) => preferredStatuses.has(booking.status)) || null
+    : pickPreferredBooking(providerMatches, preferredStatuses);
+  if (directProviderMatch) return directProviderMatch;
+  if (providerMatches.length && preferredStatuses?.size) return null;
+
+  const configuredProvider = normalizeWhatsAppNumber(process.env.PROVIDER_TEST_WHATSAPP_TO);
+  if (!configuredProvider || normalizedFrom !== configuredProvider) return null;
+
+  return pickPreferredBooking(activeBookings, preferredStatuses);
+}
+
+function matchLatestPendingProviderResponseBooking() {
+  return store
+    .list('bookings')
+    .filter((booking) => booking.status === 'pending_provider_response')
     .sort((a, b) => String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt)))[0] || null;
+}
+
+function pickPreferredBooking(bookings, preferredStatuses) {
+  if (!bookings.length) return null;
+  if (preferredStatuses?.size) {
+    const preferred = bookings.find((booking) => preferredStatuses.has(booking.status));
+    if (preferred) return preferred;
+  }
+  return bookings[0] || null;
 }
 
 function normalizeProposedSlot(proposedSlot, fallbackSlot) {
@@ -510,15 +639,20 @@ function normalizeProposedSlot(proposedSlot, fallbackSlot) {
 }
 
 function parseRelativeTimeOnFallbackDate(text, fallbackDate) {
-  const match = String(text || '').match(/\b(?:at\s*)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i);
+  const match = String(text || '').match(/\b(?:at\s*)?(\d{1,2})(?::(\d{2}))?\s*(am|pm|bajy|baje|bajay)\b/i);
   if (!match) return null;
 
   let hour = Number(match[1]);
   const minute = Number(match[2] || 0);
   const meridiem = match[3].toLowerCase();
   if (!Number.isFinite(hour) || hour < 1 || hour > 12 || !Number.isFinite(minute) || minute > 59) return null;
-  if (meridiem === 'pm' && hour !== 12) hour += 12;
-  if (meridiem === 'am' && hour === 12) hour = 0;
+  if (meridiem === 'pm' && hour !== 12) {
+    hour += 12;
+  } else if (meridiem === 'am' && hour === 12) {
+    hour = 0;
+  } else if (['bajy', 'baje', 'bajay'].includes(meridiem)) {
+    hour = inferHourFromFallback(hour, fallbackDate);
+  }
 
   const dateParts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Karachi',
@@ -531,6 +665,17 @@ function parseRelativeTimeOnFallbackDate(text, fallbackDate) {
   }, {});
 
   return new Date(`${dateParts.year}-${dateParts.month}-${dateParts.day}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00+05:00`);
+}
+
+function inferHourFromFallback(hour, fallbackDate) {
+  const fallbackHour = Number(new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Karachi',
+    hour: 'numeric',
+    hour12: false,
+  }).format(fallbackDate));
+  if (!Number.isFinite(fallbackHour)) return hour;
+  if (hour === 12) return 12;
+  return hour > fallbackHour ? hour : hour + 12;
 }
 
 function formatSlotLabel(date) {
@@ -552,6 +697,7 @@ module.exports = {
   getConversationForBooking,
   handleProviderInbound,
   matchLatestActiveBookingByProvider,
+  matchLatestPendingProviderResponseBooking,
   rejectAction,
   sendUserMessage,
 };

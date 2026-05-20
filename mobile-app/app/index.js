@@ -2,27 +2,65 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
-  ScrollView, ActivityIndicator,
+  ScrollView, ActivityIndicator, Platform,
 } from 'react-native';
+import Constants from 'expo-constants';
 import {
   ExpoSpeechRecognitionModule,
   useSpeechRecognitionEvent,
 } from 'expo-speech-recognition';
+
+// iOS Simulator's SFSpeechRecognizer is unstable and frequently crashes the
+// app process on `.start()`. We treat the simulator as "speech not available".
+const IS_SIMULATOR = Platform.OS === 'ios' && Constants.isDevice === false;
+
+// Defensive guard: when the native module isn't linked (Expo Go, missing dev
+// client rebuild, etc.) the import returns undefined and any method call
+// crashes hard. This check lets us show a clean error instead.
+function speechModuleReady() {
+  return (
+    ExpoSpeechRecognitionModule &&
+    typeof ExpoSpeechRecognitionModule.start === 'function' &&
+    typeof ExpoSpeechRecognitionModule.requestPermissionsAsync === 'function'
+  );
+}
 import { useRouter } from 'expo-router';
 import TopBar from '../src/components/TopBar';
-import BottomNav from '../src/components/BottomNav';
 import MCard from '../src/components/MCard';
 import Ic from '../src/components/Ic';
 import { AccentBtn } from '../src/components/Buttons';
 import { M } from '../src/theme';
 import { CATEGORIES, EXAMPLES } from '../src/data';
 import { checkHealth } from '../src/api';
+import { detectLang } from '../src/utils/detectLang';
 
 const SPEECH_LANGUAGES = [
   { key: 'english', label: 'English', locale: 'en-US' },
   { key: 'urdu', label: 'Urdu', locale: 'ur-PK' },
-  { key: 'roman_urdu', label: 'Roman Urdu', locale: 'en-US' },
 ];
+
+// Resolve the best locale the on-device recognizer actually supports.
+// Falls back: requested -> language root (e.g. "ur") -> en-US -> first installed.
+async function resolveSupportedLocale(requestedLocale) {
+  if (!speechModuleReady() || typeof ExpoSpeechRecognitionModule.getSupportedLocales !== 'function') {
+    return requestedLocale;
+  }
+  try {
+    const { locales = [], installedLocales = [] } = await ExpoSpeechRecognitionModule.getSupportedLocales({});
+    const supported = new Set([...locales, ...installedLocales].map((l) => String(l).toLowerCase()));
+    if (!supported.size) return requestedLocale; // empty -> trust the request
+    const wanted = String(requestedLocale).toLowerCase();
+    if (supported.has(wanted)) return requestedLocale;
+    // Try language root (e.g. "ur-PK" -> "ur") or any variant with same root.
+    const root = wanted.split('-')[0];
+    const variant = [...supported].find((l) => l === root || l.startsWith(`${root}-`));
+    if (variant) return variant;
+    if (supported.has('en-us')) return 'en-US';
+    return [...supported][0];
+  } catch {
+    return requestedLocale;
+  }
+}
 
 function appendSpeechText(base, transcript) {
   const cleanBase = String(base || '').trim();
@@ -47,24 +85,27 @@ export default function HomeScreen() {
   const speechBaseRef = useRef('');
 
   const displayedQuery = interimSpeech ? appendSpeechText(speechBaseRef.current, interimSpeech) : query;
-  const isUrdu      = /[\u0600-\u06FF]/.test(displayedQuery) || speechLanguage.key === 'urdu';
-  const isRomanUrdu = !isUrdu && /mujhe|chahiye|subah|mein|kal|aaj/i.test(displayedQuery);
-  const langLabel   = isUrdu ? 'Urdu' : isRomanUrdu ? 'Roman Urdu' : displayedQuery.length > 3 ? 'English' : null;
-  const speechStatus = stoppingSpeech
-    ? 'Stopping...'
-    : recognizing
-      ? `Listening in ${speechLanguage.label}...`
-      : null;
-
+  const detected   = detectLang(displayedQuery);
+  const isUrdu     = detected === 'Urdu' || speechLanguage.key === 'urdu';
+  const langLabel  = isUrdu ? 'Urdu' : detected;
   // Check backend health on mount
   useEffect(() => {
     checkHealth().then(ok => setOnline(ok));
   }, []);
 
   useEffect(() => {
+    if (recognizing) return;
+    const lang = detectLang(query);
+    const next = lang === 'Urdu' ? SPEECH_LANGUAGES[1] : SPEECH_LANGUAGES[0];
+    if (next.key !== speechLanguage.key) setSpeechLanguage(next);
+  }, [query, recognizing]);
+
+  useEffect(() => {
     return () => {
       try {
-        ExpoSpeechRecognitionModule.abort();
+        if (speechModuleReady() && typeof ExpoSpeechRecognitionModule.abort === 'function') {
+          ExpoSpeechRecognitionModule.abort();
+        }
       } catch {}
     };
   }, []);
@@ -96,15 +137,29 @@ export default function HomeScreen() {
     setRecognizing(false);
     setStoppingSpeech(false);
     setInterimSpeech('');
+    // Map common native error codes to a friendly explanation. Unknown codes
+    // fall through to the raw message so we don't hide real failures.
+    const friendly = {
+      'language-not-supported': `${speechLanguage.label} voice input is not installed on this device. Switch to English or type instead.`,
+      'service-not-allowed':    'Voice input is blocked by the system. Check Settings → Privacy → Speech Recognition.',
+      'not-allowed':            'Voice input permission was denied. Grant microphone & speech access in Settings.',
+      'audio-capture':          'Could not access the microphone. Close other apps using audio and try again.',
+      'network':                'Voice input needs an internet connection for this language.',
+      'no-speech':              'No speech detected. Tap the mic and try again closer to the microphone.',
+      'aborted':                null, // user-initiated stop or quick re-tap; don\'t spam an error.
+    }[event.error];
+    if (friendly === null) return;
     const code = event.error ? ` (${event.error})` : '';
-    setError(event.message || `Speech recognition failed${code}.`);
+    setError(friendly || event.message || `Speech recognition failed${code}.`);
   });
 
   const handleSpeechPress = async () => {
     if (recognizing) {
       setStoppingSpeech(true);
       try {
-        await ExpoSpeechRecognitionModule.stop();
+        if (speechModuleReady()) {
+          await ExpoSpeechRecognitionModule.stop();
+        }
       } catch (err) {
         setStoppingSpeech(false);
         setRecognizing(false);
@@ -117,6 +172,20 @@ export default function HomeScreen() {
     setInterimSpeech('');
     speechBaseRef.current = query.trim();
 
+    // Early bail-outs so we never call into a broken / missing native module.
+    if (!speechModuleReady()) {
+      setError(
+        'Speech recognition is not installed in this build. Rebuild the dev client (eas build / expo prebuild) after adding expo-speech-recognition.'
+      );
+      return;
+    }
+    if (IS_SIMULATOR) {
+      setError(
+        'Voice input does not work on the iOS Simulator. Try it on a real device — typing works here.'
+      );
+      return;
+    }
+
     try {
       if (
         typeof ExpoSpeechRecognitionModule.isRecognitionAvailable === 'function' &&
@@ -127,34 +196,88 @@ export default function HomeScreen() {
       }
 
       const permission = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
-      if (!permission.granted) {
+      if (!permission?.granted) {
         setError('Microphone and speech recognition permission are required to dictate a service request.');
         return;
       }
 
-      ExpoSpeechRecognitionModule.start({
-        lang: speechLanguage.locale,
-        interimResults: true,
-        continuous: false,
-        addsPunctuation: true,
-        contextualStrings: [
-          'plumber',
-          'electrician',
-          'AC technician',
-          'cleaner',
-          'carpenter',
-          'beautician',
-          'tutor',
-          'Islamabad',
-          'Rawalpindi',
-          'F-10',
-          'G-13',
-        ],
-      });
+      // Resolve to a locale the recognizer actually supports. ur-PK in
+      // particular is missing on many iOS installs and causes the native
+      // "failed to initialize recognizer" error.
+      const resolvedLocale = await resolveSupportedLocale(speechLanguage.locale);
+      if (!resolvedLocale) {
+        setError('No supported speech locale found on this device.');
+        return;
+      }
+      if (resolvedLocale.toLowerCase() !== speechLanguage.locale.toLowerCase()) {
+        console.warn(`[speech] ${speechLanguage.locale} not supported, falling back to ${resolvedLocale}`);
+      }
+
+      // `.start()` can throw synchronously from native code on some platforms;
+      // wrap it so we surface a clean error instead of crashing.
+      try {
+        ExpoSpeechRecognitionModule.start({
+          lang: resolvedLocale,
+          interimResults: true,
+          continuous: false,
+          addsPunctuation: true,
+          requiresOnDeviceRecognition: false,
+          contextualStrings: [
+            'plumber',
+            'electrician',
+            'AC technician',
+            'cleaner',
+            'carpenter',
+            'beautician',
+            'tutor',
+            'Islamabad',
+            'Rawalpindi',
+            'F-10',
+            'G-13',
+          ],
+        });
+      } catch (startErr) {
+        setRecognizing(false);
+        setStoppingSpeech(false);
+        setError(startErr?.message || 'Could not start listening on this device.');
+      }
     } catch (err) {
       setRecognizing(false);
       setStoppingSpeech(false);
       setError(err.message || 'Speech recognition could not start. Rebuild the dev client after installing the native speech module.');
+    }
+  };
+
+  const swapSpeechLanguage = async () => {
+    const other = SPEECH_LANGUAGES.find((l) => l.key !== speechLanguage.key);
+    if (!other) return;
+    if (!recognizing) {
+      setSpeechLanguage(other);
+      return;
+    }
+    setSpeechLanguage(other);
+    if (!speechModuleReady() || IS_SIMULATOR) {
+      setRecognizing(false);
+      setInterimSpeech('');
+      return;
+    }
+    try {
+      await ExpoSpeechRecognitionModule.stop();
+    } catch {}
+    setInterimSpeech('');
+    speechBaseRef.current = query.trim();
+    try {
+      const resolvedLocale = await resolveSupportedLocale(other.locale);
+      ExpoSpeechRecognitionModule.start({
+        lang: resolvedLocale || other.locale,
+        interimResults: true,
+        continuous: false,
+        addsPunctuation: true,
+        requiresOnDeviceRecognition: false,
+      });
+    } catch (err) {
+      setRecognizing(false);
+      setError(err.message || 'Could not switch language.');
     }
   };
 
@@ -305,37 +428,6 @@ export default function HomeScreen() {
                 }}
               />
 
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-                {SPEECH_LANGUAGES.map((lang) => {
-                  const active = speechLanguage.key === lang.key;
-                  return (
-                    <TouchableOpacity
-                      key={lang.key}
-                      onPress={() => {
-                        if (!recognizing) setSpeechLanguage(lang);
-                      }}
-                      disabled={recognizing}
-                      style={{
-                        borderRadius: 999,
-                        paddingHorizontal: 10,
-                        paddingVertical: 5,
-                        borderWidth: 1,
-                        borderColor: active ? M.accent : M.border,
-                        backgroundColor: active ? M.accentSoft : M.surfaceLow,
-                        opacity: recognizing && !active ? 0.55 : 1,
-                      }}
-                    >
-                      <Text style={{
-                        fontSize: 11,
-                        fontWeight: '800',
-                        color: active ? M.accentDeep : M.textMute,
-                      }}>
-                        {lang.label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
 
               {/* Footer row */}
               <View style={{
@@ -343,9 +435,31 @@ export default function HomeScreen() {
                 borderTopWidth: 1, borderTopColor: M.divider, paddingTop: 8, marginTop: 6,
               }}>
                 <View style={{ flex: 1, paddingRight: 8 }}>
-                  <Text style={{ fontSize: 11, color: recognizing ? M.accentDeep : M.textDim, fontWeight: '600' }}>
-                    {speechStatus || `${displayedQuery.length} chars`}
-                  </Text>
+                  {recognizing ? (
+                    <TouchableOpacity
+                      onPress={swapSpeechLanguage}
+                      accessibilityRole="button"
+                      accessibilityLabel="Switch speech language"
+                      style={{
+                        flexDirection: 'row', alignItems: 'center', gap: 6,
+                        alignSelf: 'flex-start',
+                        borderRadius: 999, paddingHorizontal: 9, paddingVertical: 4,
+                        backgroundColor: M.accentSoft, borderWidth: 1, borderColor: M.accent,
+                      }}
+                    >
+                      <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: M.accentDeep }} />
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: M.accentDeep }}>
+                        Listening · {speechLanguage.label}
+                      </Text>
+                      <Text style={{ fontSize: 10, color: M.accentDeep, opacity: 0.7 }}>
+                        tap to switch
+                      </Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <Text style={{ fontSize: 11, color: M.textDim, fontWeight: '600' }}>
+                      {stoppingSpeech ? 'Stopping...' : `${displayedQuery.length} chars`}
+                    </Text>
+                  )}
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                   {langLabel && (
@@ -528,7 +642,6 @@ export default function HomeScreen() {
         </View>
       </ScrollView>
 
-      <BottomNav active="book" />
     </View>
   );
 }

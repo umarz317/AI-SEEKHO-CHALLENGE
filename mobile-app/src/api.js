@@ -1,16 +1,27 @@
-// src/api.js — API service layer for mobile app
-// Connects to the backend orchestrator
-
 import { Platform } from 'react-native';
 import { getAuth, getIdToken } from '@react-native-firebase/auth';
 
 // Android emulator uses 10.0.2.2 for localhost; iOS sim uses localhost
 // For real device testing, use your machine's local IP
-const BASE_URL = Platform.select({
-  android: 'http://10.0.2.2:3001',
-  ios: 'http://localhost:3001',
-  default: 'http://localhost:3001',
-});
+// const BASE_URL = 'http://34.61.109.250:3001';
+const BASE_URL = "http://localhost:3001";
+
+// ── 401 handler ─────────────────────────────────────────────────
+// AuthContext registers its forceLogout here so the API layer can
+// trigger a logout + toast without importing React hooks.
+let _forceLogout = null;
+
+export function registerForceLogout(fn) {
+  _forceLogout = fn;
+}
+
+async function handle401(res) {
+  if (res.status === 401 && _forceLogout) {
+    const body = await res.json().catch(() => ({}));
+    const message = body.message || 'Session expired. Please sign in again.';
+    await _forceLogout(message);
+  }
+}
 
 async function getAuthHeaders() {
   const user = getAuth().currentUser;
@@ -46,6 +57,7 @@ export async function orchestrate({ text, cityHint = 'Islamabad' }) {
   });
 
   if (!res.ok) {
+    await handle401(res);
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || `Orchestration failed (${res.status})`);
   }
@@ -70,6 +82,7 @@ export async function startOrchestrationJob({ text, cityHint = 'Islamabad' }) {
   });
 
   if (!res.ok) {
+    await handle401(res);
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || `Job start failed (${res.status})`);
   }
@@ -153,6 +166,7 @@ export async function registerPushToken(token) {
   });
 
   if (!res.ok) {
+    await handle401(res);
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || `Push token registration failed (${res.status})`);
   }
@@ -179,6 +193,7 @@ export async function confirmBooking(bookingId) {
     headers,
   });
   if (!res.ok) {
+    await handle401(res);
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || `Confirm failed (${res.status})`);
   }
@@ -208,6 +223,7 @@ export async function sendConversationMessage(bookingId, body) {
     body: JSON.stringify({ body }),
   });
   if (!res.ok) {
+    await handle401(res);
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || `Message failed (${res.status})`);
   }
@@ -221,6 +237,7 @@ export async function approveConversationAction(bookingId, actionId) {
     headers,
   });
   if (!res.ok) {
+    await handle401(res);
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || `Action approval failed (${res.status})`);
   }
@@ -234,6 +251,7 @@ export async function rejectConversationAction(bookingId, actionId) {
     headers,
   });
   if (!res.ok) {
+    await handle401(res);
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || `Action rejection failed (${res.status})`);
   }

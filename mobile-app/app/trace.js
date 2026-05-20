@@ -1,11 +1,12 @@
 // app/trace.js — Read-only Agent Trace viewer
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, ScrollView } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import TopBar from '../src/components/TopBar';
 import MCard from '../src/components/MCard';
 import Ic from '../src/components/Ic';
 import { M } from '../src/theme';
+import { getTrace } from '../src/api';
 
 const STATUS_META = {
   running:     { label: 'Running',     color: M.accent,  bg: M.accentBg },
@@ -26,7 +27,7 @@ export default function TraceScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
 
-  const events = useMemo(() => {
+  const initialEvents = useMemo(() => {
     try {
       const parsed = params.trace ? JSON.parse(params.trace) : [];
       return Array.isArray(parsed) ? parsed : [];
@@ -34,19 +35,57 @@ export default function TraceScreen() {
       return [];
     }
   }, [params.trace]);
+  const traceId = Array.isArray(params.traceId) ? params.traceId[0] : params.traceId;
+  const [events, setEvents] = useState(initialEvents);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    setEvents(initialEvents);
+  }, [initialEvents]);
+
+  useEffect(() => {
+    if (!traceId || initialEvents.length > 0) return undefined;
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    getTrace(traceId)
+      .then((trace) => {
+        if (!cancelled) setEvents(Array.isArray(trace?.events) ? trace.events : []);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.message || 'Trace not found.');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [traceId, initialEvents.length]);
 
   return (
     <View style={{ flex: 1, backgroundColor: M.bg }}>
       <TopBar
         title="Agent trace"
-        subtitle={`${events.length} step${events.length === 1 ? '' : 's'}`}
+        subtitle={loading ? 'Loading trace' : `${events.length} step${events.length === 1 ? '' : 's'}`}
         onBack={() => router.back()}
       />
       <ScrollView
         contentContainerStyle={{ padding: 14, paddingBottom: 32 }}
         showsVerticalScrollIndicator={false}
       >
-        {events.length === 0 && (
+        {!!error && (
+          <Text style={{ fontSize: 13, color: M.error, textAlign: 'center', marginTop: 24 }}>
+            {error}
+          </Text>
+        )}
+        {loading && events.length === 0 && (
+          <Text style={{ fontSize: 13, color: M.textMute, textAlign: 'center', marginTop: 40 }}>
+            Loading trace logs...
+          </Text>
+        )}
+        {!loading && !error && events.length === 0 && (
           <Text style={{ fontSize: 13, color: M.textMute, textAlign: 'center', marginTop: 40 }}>
             No trace events were captured for this booking.
           </Text>

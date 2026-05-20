@@ -3,7 +3,6 @@ import React from 'react';
 import { View, Text, ScrollView } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import TopBar from '../../src/components/TopBar';
-import BottomNav from '../../src/components/BottomNav';
 import MCard from '../../src/components/MCard';
 import Ic from '../../src/components/Ic';
 import { M } from '../../src/theme';
@@ -79,7 +78,6 @@ export default function TraceScreen() {
           ))}
         </View>
       </ScrollView>
-      <BottomNav />
     </View>
   );
 }

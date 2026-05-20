@@ -10,7 +10,6 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import TopBar from '../src/components/TopBar';
-import BottomNav from '../src/components/BottomNav';
 import MCard from '../src/components/MCard';
 import Ic from '../src/components/Ic';
 import { M } from '../src/theme';
@@ -191,7 +190,6 @@ export default function ProfileScreen() {
               <AdapterPill label="Provider search" value={adapters.provider} />
               <AdapterPill label="Distance" value={adapters.distance} />
               <AdapterPill label="Booking store" value={adapters.bookingStore} />
-              <AdapterPill label="Reminder" value={adapters.reminder} />
             </MCard>
 
             <MCard style={{ marginBottom: 12, padding: 14 }}>
@@ -199,7 +197,6 @@ export default function ProfileScreen() {
                 Storage
               </Text>
               <InfoRow icon="file" label="Type" value={health?.storage?.type || 'local_json'} />
-              <InfoRow icon="flow" label="Mode" value={health?.mode || 'demo'} />
               <InfoRow icon="clock" label="Last checked" value={health?.timestamp ? new Date(health.timestamp).toLocaleTimeString() : '-'} />
             </MCard>
           </>
@@ -222,7 +219,6 @@ export default function ProfileScreen() {
         </View>
       </ScrollView>
 
-      <BottomNav active="profile" />
     </View>
   );
 }

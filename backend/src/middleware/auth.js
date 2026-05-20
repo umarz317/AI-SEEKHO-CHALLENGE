@@ -51,7 +51,11 @@ function authMiddleware(req, res, next) {
 }
 
 function requireAuth(req, res, next) {
-  if (!process.env.FIREBASE_PROJECT_ID && !process.env.FIREBASE_CLIENT_EMAIL) {
+  const hasFirebaseCredentials = process.env.FIREBASE_PROJECT_ID
+    && process.env.FIREBASE_CLIENT_EMAIL
+    && process.env.FIREBASE_PRIVATE_KEY;
+
+  if (!hasFirebaseCredentials) {
     req.userId = req.body.userId || 'demo-user-001';
     req.userPhone = req.body.customerPhone || req.body.phoneNumber || null;
     return next();

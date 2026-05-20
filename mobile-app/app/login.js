@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getAuth, signInWithPhoneNumber } from '@react-native-firebase/auth';
 import { M } from '../src/theme';
 import Ic from '../src/components/Ic';
+import { useAuth } from '../src/AuthContext';
 
 const COUNTRY = { dial: '+92', flag: '🇵🇰', code: 'PK' };
 const OTP_LEN = 6;
@@ -97,6 +98,26 @@ export default function LoginScreen() {
   const otpRefs = useRef([]);
   const fade = useRef(new Animated.Value(0)).current;
   const slide = useRef(new Animated.Value(12)).current;
+
+  const { toastMessage, clearToast } = useAuth();
+  const [toast, setToast] = useState(null);
+  const toastOpacity = useRef(new Animated.Value(0)).current;
+
+  // Show toast when forceLogout sets a message
+  useEffect(() => {
+    if (toastMessage) {
+      setToast(toastMessage);
+      toastOpacity.setValue(0);
+      Animated.timing(toastOpacity, { toValue: 1, duration: 300, useNativeDriver: true }).start();
+      const timer = setTimeout(() => {
+        Animated.timing(toastOpacity, { toValue: 0, duration: 300, useNativeDriver: true }).start(() => {
+          setToast(null);
+          clearToast();
+        });
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [toastMessage]);
 
   useEffect(() => {
     fade.setValue(0);
@@ -210,6 +231,49 @@ export default function LoginScreen() {
       style={{ flex: 1, backgroundColor: M.bg }}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
+      {/* Toast banner */}
+      {toast && (
+        <Animated.View style={{
+          position: 'absolute',
+          top: insets.top + 8,
+          left: 16, right: 16,
+          backgroundColor: '#FEF3C7',
+          borderRadius: 12,
+          padding: 14,
+          borderWidth: 1,
+          borderColor: '#FDE68A',
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 10,
+          opacity: toastOpacity,
+          zIndex: 100,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.1,
+          shadowRadius: 8,
+          elevation: 6,
+        }}>
+          <View style={{
+            width: 28, height: 28, borderRadius: 14,
+            backgroundColor: '#FDE68A',
+            alignItems: 'center', justifyContent: 'center',
+          }}>
+            <Ic name="alarm" size={14} color="#92400E" />
+          </View>
+          <Text style={{ flex: 1, fontSize: 13, fontWeight: '600', color: '#92400E', lineHeight: 18 }}>
+            {toast}
+          </Text>
+          <Pressable hitSlop={8} onPress={() => {
+            Animated.timing(toastOpacity, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => {
+              setToast(null);
+              clearToast();
+            });
+          }}>
+            <Ic name="close" size={14} color="#92400E" />
+          </Pressable>
+        </Animated.View>
+      )}
+
       {/* Decorative gradient orb */}
       <View pointerEvents="none" style={{
         position: 'absolute', top: -80, right: -80,

@@ -6,7 +6,6 @@ import {
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import Svg, { Circle, Text as SvgText } from 'react-native-svg';
 import TopBar from '../src/components/TopBar';
-import BottomNav from '../src/components/BottomNav';
 import MCard from '../src/components/MCard';
 import Ic from '../src/components/Ic';
 import { AccentBtn, OutlinedBtn } from '../src/components/Buttons';
@@ -483,7 +482,6 @@ export default function UnderstandingScreen() {
           </View>
         )}
       </ScrollView>
-      <BottomNav />
     </View>
   );
 }

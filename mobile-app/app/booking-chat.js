@@ -48,6 +48,26 @@ function formatSlot(value) {
   });
 }
 
+function formatActionSlot(value) {
+  if (!value) return 'New time was not parsed clearly';
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return String(value);
+
+  const day = date.toLocaleDateString('en-GB', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'short',
+    timeZone: 'Asia/Karachi',
+  });
+  const time = date.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+    timeZone: 'Asia/Karachi',
+  }).toLowerCase();
+  return `${day} at ${time}`;
+}
+
 function statusTone(status) {
   if (status === 'confirmed') {
     return { label: 'Provider accepted', color: M.success, bg: M.successBg };
@@ -65,9 +85,12 @@ function statusTone(status) {
 }
 
 function isInitialProviderDecisionMessage(message) {
+  const body = String(message.body || '').trim();
   return message.senderType === 'provider' &&
-    ['accepted', 'rejected'].includes(message.metadata?.parsedIntent) &&
-    /^(accept|accepted|yes|reject|rejected|no)$/i.test(String(message.body || '').trim());
+    (
+      ['accepted', 'rejected'].includes(message.metadata?.parsedIntent) ||
+      /^(accept|accepted|yes|confirm|confirmed|reject|rejected|decline|declined|no)$/i.test(body)
+    );
 }
 
 function SectionLabel({ children }) {
@@ -265,9 +288,16 @@ function ActionCard({ action, onApprove, onReject, busy }) {
         </Text>
       </View>
       {isReschedule && (
-        <Text style={{ fontSize: 13, color: M.text, fontWeight: '700', marginBottom: 5 }}>
-          {action.proposedSlot || 'New time was not parsed clearly'}
-        </Text>
+        <View style={{ marginBottom: 5 }}>
+          <Text style={{ fontSize: 15, color: M.text, fontWeight: '900' }}>
+            {formatActionSlot(action.proposedSlot)}
+          </Text>
+          {Number.isFinite(new Date(action.proposedSlot).getTime()) && (
+            <Text style={{ fontSize: 11, color: M.textDim, fontWeight: '700', marginTop: 2 }}>
+              Proposed visit time
+            </Text>
+          )}
+        </View>
       )}
       {!!action.reason && (
         <Text style={{ fontSize: 12, color: M.textMute, lineHeight: 18, marginBottom: isPending ? 12 : 0 }}>

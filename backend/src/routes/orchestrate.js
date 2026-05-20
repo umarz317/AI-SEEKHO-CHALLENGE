@@ -8,8 +8,11 @@ const followUpAgent = require('../agents/followUpAgent');
 const traceAgent = require('../agents/traceAgent');
 const store = require('../storage/localStore');
 const conversationService = require('../services/conversationService');
-const { parseProviderReply } = require('../services/providerReplyParser');
-const { validateTwilioSignature } = require('../services/providerMessaging');
+const { extractBookingId, parseProviderReply } = require('../services/providerReplyParser');
+const {
+  sendProviderAcceptanceConfirmation,
+  validateTwilioSignature,
+} = require('../services/providerMessaging');
 const { registerPushToken } = require('../services/pushNotifications');
 const { emitBookingUpdated } = require('../services/realtime');
 const { requireAuth } = require('../middleware/auth');
@@ -134,26 +137,59 @@ router.post('/webhooks/twilio/whatsapp', async (req, res) => {
     return res.status(403).send('<Response></Response>');
   }
 
+  // Twilio sends one of these depending on how the template button was
+  // registered: `ButtonPayload` (data payload), `ButtonText` (visible label),
+  // or just `Body` (label echoed as message text). Try them in order so a
+  // tap on Accept / Reject always parses regardless of template config.
+  const buttonPayload =
+    req.body.ButtonPayload ||
+    req.body.ButtonText ||
+    null;
+
   const inbound = {
     inboundMessageId: req.body.MessageSid || req.body.SmsSid || `IN-${Date.now()}`,
     channel: 'twilio_whatsapp',
     from: req.body.From || null,
     to: req.body.To || null,
     body: req.body.Body || '',
-    buttonPayload: req.body.ButtonPayload || null,
+    buttonPayload,
     raw: req.body,
     status: 'received',
     createdAt: new Date().toISOString(),
   };
 
+  console.log('[twilio:whatsapp] inbound', {
+    from: inbound.from,
+    body: inbound.body,
+    buttonPayload: inbound.buttonPayload,
+    messageSid: inbound.inboundMessageId,
+  });
+
   try {
+    const preMatchedBookingId =
+      extractBookingId(inbound.buttonPayload || '') ||
+      extractBookingId(inbound.body || '');
+    const preMatchedBooking = preMatchedBookingId
+      ? bookingAgent.getBooking(preMatchedBookingId)
+      : conversationService.matchLatestActiveBookingByProvider(inbound.from);
+    const isConfirmedChat = preMatchedBooking?.status === 'confirmed';
     const parsed = await parseProviderReply({
+      // If only Body is set (button label echoed as text), use it for both
+      // signals so the button parser gets a shot before falling through to
+      // rule-based text parsing.
       text: inbound.body,
-      buttonPayload: inbound.buttonPayload,
+      buttonPayload: inbound.buttonPayload || inbound.body,
+      allowLlm: !isConfirmedChat,
     });
+    console.log('[twilio:whatsapp] parsed', parsed);
+    const isBareInitialDecision = !parsed.bookingId && ['accepted', 'rejected'].includes(parsed.intent);
     const fallbackBooking = parsed.bookingId
       ? null
-      : conversationService.matchLatestActiveBookingByProvider(inbound.from);
+      : preMatchedBookingId ? null : isBareInitialDecision
+        ? conversationService.matchLatestActiveBookingByProvider(inbound.from, {
+          preferredStatuses: ['pending_provider_response'],
+        }) || conversationService.matchLatestPendingProviderResponseBooking()
+        : preMatchedBooking;
     const bookingId = parsed.bookingId || fallbackBooking?.bookingId || null;
 
     inbound.bookingId = bookingId;
@@ -162,6 +198,13 @@ router.post('/webhooks/twilio/whatsapp', async (req, res) => {
 
     if (!bookingId) {
       inbound.status = 'unmatched_missing_booking_code';
+      inbound.matchDebug = {
+        from: inbound.from,
+        parsedIntent: parsed.intent,
+        pendingProviderResponseCount: bookingAgent.getAllBookings()
+          .filter((booking) => booking.status === 'pending_provider_response').length,
+      };
+      console.warn('[twilio:whatsapp] unmatched booking reply', inbound.matchDebug);
       store.insert('inboundMessages', inbound);
       return res.send('<Response></Response>');
     }
@@ -208,9 +251,17 @@ router.post('/webhooks/twilio/whatsapp', async (req, res) => {
         formattedLocation: updatedBooking.location,
         serviceType: updatedBooking.serviceType,
       });
+      const confirmationDelivery = await sendProviderAcceptanceConfirmation(updatedBooking)
+        .then((delivery) => ({ delivery }))
+        .catch((err) => ({ error: err.message || 'Provider confirmation message failed.' }));
+
       const bookingWithReminder = bookingAgent.updateBooking(updatedBooking.bookingId, {
         reminderTimeLabel: followUp.reminderTimeLabel || null,
         reminderMessage: followUp.reminderMessage || null,
+        providerAcceptanceConfirmationSid: confirmationDelivery.delivery?.providerMessageSid || null,
+        providerAcceptanceConfirmationStatus: confirmationDelivery.delivery?.providerMessageStatus || null,
+        providerAcceptanceConfirmationBody: confirmationDelivery.delivery?.providerMessageBody || null,
+        providerAcceptanceConfirmationError: confirmationDelivery.error || null,
       }, 'Reminder scheduled after provider acceptance.');
       emitBookingUpdated(bookingWithReminder || updatedBooking);
     } else if (isInitialProviderDecision) {
@@ -381,9 +432,8 @@ router.get('/notifications', (req, res) => {
 router.get('/health', (req, res) => {
   res.json({
     status: 'ok',
-    mode: process.env.APP_MODE || 'demo',
     auth: {
-      enabled: Boolean(process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL),
+      enabled: Boolean(process.env.FIREBASE_PROJECT_ID && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY),
     },
     adapters: {
       intent: process.env.INTENT_MODE || 'mock',
@@ -392,7 +442,6 @@ router.get('/health', (req, res) => {
       distance: process.env.DISTANCE_MODE || 'mock',
       bookingStore: process.env.BOOKING_STORE_MODE || 'local',
       notification: process.env.NOTIFICATION_MODE || 'mock',
-      reminder: process.env.REMINDER_MODE || 'mock',
     },
     messaging: {
       channel: 'twilio_whatsapp',

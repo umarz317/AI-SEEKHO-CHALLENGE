@@ -200,10 +200,16 @@ async function orchestrate(request, options = {}) {
   // ---------- Step 6: Trace ----------
   addTraceWriterStep(traceSteps, onProgress);
   const trace = traceAgent.run({ steps: traceSteps });
+  const bookingWithTrace = booking
+    ? bookingAgent.updateBooking(booking.bookingId, {
+      traceId: trace.traceId,
+      traceSummary: trace.traceSummary,
+    }, 'Agent trace persisted.')
+    : booking;
 
   // ---------- Build unified response ----------
   const response = {
-    status: booking.status,
+    status: bookingWithTrace.status,
     traceId: trace.traceId,
     adapterModes: {
       intent: intent.adapterMode,
@@ -274,22 +280,24 @@ async function orchestrate(request, options = {}) {
       note: buildAltNote(alt, topProvider),
     })),
 
-    booking: booking ? {
-      bookingId: booking.bookingId,
-      status: booking.status,
-      providerName: booking.providerName,
-      slot: booking.slotLabel,
-      location: booking.location,
-      fee: booking.fee,
-      lifecycleStatus: booking.lifecycleStatus,
-      providerPhone: booking.providerPhone,
-      providerMessageSid: booking.providerMessageSid,
-      providerMessageStatus: booking.providerMessageStatus,
-      providerMessageError: booking.providerMessageError,
-      providerResponseStatus: booking.providerResponseStatus,
-      providerResponseMessage: booking.providerResponseMessage,
-      statusHistory: booking.statusHistory || [],
-      confirmationMessage: booking.confirmationMessage,
+    booking: bookingWithTrace ? {
+      bookingId: bookingWithTrace.bookingId,
+      status: bookingWithTrace.status,
+      providerName: bookingWithTrace.providerName,
+      slot: bookingWithTrace.slotLabel,
+      location: bookingWithTrace.location,
+      fee: bookingWithTrace.fee,
+      lifecycleStatus: bookingWithTrace.lifecycleStatus,
+      providerPhone: bookingWithTrace.providerPhone,
+      providerMessageSid: bookingWithTrace.providerMessageSid,
+      providerMessageStatus: bookingWithTrace.providerMessageStatus,
+      providerMessageError: bookingWithTrace.providerMessageError,
+      providerResponseStatus: bookingWithTrace.providerResponseStatus,
+      providerResponseMessage: bookingWithTrace.providerResponseMessage,
+      statusHistory: bookingWithTrace.statusHistory || [],
+      confirmationMessage: bookingWithTrace.confirmationMessage,
+      traceId: bookingWithTrace.traceId,
+      traceSummary: bookingWithTrace.traceSummary || [],
       reminderMessage: null,
       reminderTimeLabel: null,
     } : null,

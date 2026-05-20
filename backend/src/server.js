@@ -38,7 +38,6 @@ app.get('/', (req, res) => {
   res.json({
     name: 'KariGo Service Orchestrator',
     version: '1.0.0',
-    mode: process.env.APP_MODE || 'demo',
     endpoints: [
       'POST /api/orchestrate',
       'GET  /api/bookings',
@@ -58,6 +57,5 @@ app.get('/', (req, res) => {
 // Start
 httpServer.listen(PORT, () => {
   console.log(`\n🚀 KariGo Backend running on http://localhost:${PORT}`);
-  console.log(`   Mode: ${process.env.APP_MODE || 'demo'}`);
   console.log(`   Try: curl -X POST http://localhost:${PORT}/api/orchestrate -H "Content-Type: application/json" -d '{"text":"Mujhe kal subah G-13 mein AC technician chahiye","cityHint":"Islamabad"}'\n`);
 });

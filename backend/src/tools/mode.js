@@ -50,16 +50,17 @@ const googleStubs = {
   },
   location: async () => {
     if (!process.env.GOOGLE_GEOCODING_API_KEY &&
-        !process.env.GOOGLE_MAPS_API_KEY &&
-        !process.env.GOOGLE_PLACES_API_KEY) throw new Error('not_configured');
+        !process.env.GOOGLE_MAPS_API_KEY) throw new Error('not_configured');
     return { status: 'google_stub_called' };
   },
   discovery: async () => {
-    if (!process.env.GOOGLE_PLACES_API_KEY) throw new Error('not_configured');
+    if (!process.env.GOOGLE_PLACES_API_KEY &&
+        !process.env.GOOGLE_MAPS_API_KEY) throw new Error('not_configured');
     return { status: 'google_stub_called' };
   },
   distance: async () => {
-    if (!process.env.GOOGLE_ROUTES_API_KEY) throw new Error('not_configured');
+    if (!process.env.GOOGLE_ROUTES_API_KEY &&
+        !process.env.GOOGLE_MAPS_API_KEY) throw new Error('not_configured');
     return { status: 'google_stub_called' };
   },
   booking: async () => {
