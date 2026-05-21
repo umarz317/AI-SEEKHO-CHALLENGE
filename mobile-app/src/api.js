@@ -3,8 +3,8 @@ import { getAuth, getIdToken } from '@react-native-firebase/auth';
 
 // Android emulator uses 10.0.2.2 for localhost; iOS sim uses localhost
 // For real device testing, use your machine's local IP
-// const BASE_URL = 'http://34.61.109.250:3001';
-const BASE_URL = "http://localhost:3001";
+const BASE_URL = 'http://34.61.109.250:3001';
+// const BASE_URL = "http://localhost:3001";
 
 // ── 401 handler ─────────────────────────────────────────────────
 // AuthContext registers its forceLogout here so the API layer can
